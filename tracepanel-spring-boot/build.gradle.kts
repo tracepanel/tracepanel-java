@@ -15,8 +15,35 @@ dependencies {
     testImplementation("com.h2database:h2")
 }
 
-tasks.test {
+// The same tests on Spring Boot 3.5, the line most apps are on: compiled and run against its libraries.
+testing {
+    suites {
+        register<JvmTestSuite>("testBoot35") {
+            useJUnitJupiter()
+            sources {
+                java.setSrcDirs(listOf("src/test/java"))
+            }
+            dependencies {
+                implementation(project())
+                implementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
+                implementation("org.springframework.boot:spring-boot-starter-web")
+                implementation("org.springframework.boot:spring-boot-starter-jdbc")
+                implementation("org.springframework.boot:spring-boot-starter-test")
+                implementation("com.h2database:h2")
+            }
+            targets.all {
+                testTask.configure { shouldRunAfter(tasks.test) }
+            }
+        }
+    }
+}
+
+tasks.withType<Test>().configureEach {
     // The tests' fake agent leaves its addresses here, where the SDK looks for the project's.
-    environment("TRACEPANEL_DIR", layout.buildDirectory.dir("tracepanel-test").get().asFile.absolutePath)
+    environment("TRACEPANEL_DIR", layout.buildDirectory.dir("tracepanel-test/$name").get().asFile.absolutePath)
     environment("TRACEPANEL_AGENT", "auto")
+}
+
+tasks.check {
+    dependsOn(testing.suites.named("testBoot35"))
 }

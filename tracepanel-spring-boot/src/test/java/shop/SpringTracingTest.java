@@ -11,6 +11,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringBootVersion;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -63,7 +64,7 @@ class SpringTracingTest {
                 .containsEntry("code.view", "shop.BookController.books")
                 .containsEntry("telemetry.sdk.language", "java")
                 .containsEntry("service.role", "web");
-        assertThat(String.valueOf(attrs.get("tracepanel.framework"))).startsWith("Spring Boot 4.");
+        assertThat(attrs).containsEntry("tracepanel.framework", "Spring Boot " + SpringBootVersion.getVersion());
 
         assertThat(spans.stream().map(span -> span.get("kind")).toList()).startsWith("http", "view");
         assertThat(sql).hasSize(5);
