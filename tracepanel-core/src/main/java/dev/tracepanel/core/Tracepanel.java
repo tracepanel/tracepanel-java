@@ -15,6 +15,8 @@ public final class Tracepanel {
     private final Stacks stacks;
     private final Agent agent;
     private final Sender sender;
+    private volatile String language = "java";
+    private volatile String languageVersion;
 
     private Tracepanel(Config config, List<String> appPackages) {
         this.config = config;
@@ -46,6 +48,12 @@ public final class Tracepanel {
         return agent;
     }
 
+    /** The app's language when it isn't Java: "kotlin", with Kotlin's own version (the JVM's is the runtime's). */
+    public void language(String name, String version) {
+        language = name;
+        languageVersion = version;
+    }
+
     /** The trace this thread works for, or null. */
     public static Trace current() {
         return CURRENT.get();
@@ -55,7 +63,8 @@ public final class Tracepanel {
     public Trace begin(String kind, String name, Map<String, Object> attrs) {
         Trace trace = new Trace(kind, name, attrs);
         trace.attr("service.name", config.service());
-        trace.attr("telemetry.sdk.language", "java");
+        trace.attr("telemetry.sdk.language", language);
+        if (languageVersion != null) trace.attr("tracepanel.language.version", languageVersion);
         trace.attr("process.runtime.name", System.getProperty("java.vm.name", "java"));
         trace.attr("process.runtime.version", System.getProperty("java.version", ""));
         CURRENT.set(trace);
