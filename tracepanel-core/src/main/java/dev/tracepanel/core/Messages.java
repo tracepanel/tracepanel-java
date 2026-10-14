@@ -9,6 +9,13 @@ import java.util.Map;
  * which the agent links to the publish by it. A framework's integration says where: this is what every broker shares.
  */
 public final class Messages {
+    /**
+     * The header a message carries for a Tracepanel SDK on the other side: the trace and the span that sent it, which
+     * the received message's trace links to (sent_by), as the console's delivered messages. The traceparent is for
+     * the rest.
+     */
+    public static final String SENT_BY = "tracepanel-sent-by";
+
     // The publish under way on this thread: the broker client's hook, deeper in the same call, adds its traceparent.
     private static final ThreadLocal<Publish> PUBLISHING = new ThreadLocal<>();
 
@@ -56,6 +63,11 @@ public final class Messages {
             extra.put(key, value);
         }
 
+        /** The sending trace and span, for the SENT_BY header. */
+        public String sentBy() {
+            return trace.id() + ":" + spanId;
+        }
+
         /** The traceparent its message carries. */
         public String traceparent() {
             return W3c.outgoing(trace, spanId);
@@ -92,7 +104,7 @@ public final class Messages {
      * A message received: a task trace of its own, `name` the destination until the listener names it, linked to the
      * publish by its traceparent. Null when Tracepanel is off, or the thread already works for a trace.
      */
-    public static Trace receive(String system, String destination, String traceparent, Map<String, Object> attrs) {
+    public static Trace receive(String system, String destination, String traceparent, String sentBy, Map<String, Object> attrs) {
         Tracepanel tracepanel = Tracepanel.get();
         if (tracepanel == null || Tracepanel.current() != null) return null;
         Map<String, Object> all = new LinkedHashMap<>(attrs);
@@ -102,9 +114,16 @@ public final class Messages {
         all.put("messaging.system", system);
         all.put("messaging.operation", "process");
         all.put("messaging.destination.name", destination);
-        all.putAll(W3c.incoming(traceparent));
-        all.put("task.trigger", all.containsKey("w3c.parent_span_id") ? "message" : "other");
-        return tracepanel.begin("task", "task.run", destination, all);
+        Map<String, Object> caller = W3c.incoming(traceparent);
+        String[] sender = sentBy == null ? new String[0] : sentBy.split(":");
+        boolean linked = sender.length == 2 && !sender[0].isEmpty() && !sender[1].isEmpty();
+        // Sent by a trace the agent has: linked to it as a delivery. The caller's span would link it a second time.
+        if (caller.containsKey("w3c.trace_id")) all.put("w3c.trace_id", caller.get("w3c.trace_id"));
+        if (!linked) all.putAll(caller);
+        all.put("task.trigger", linked || caller.containsKey("w3c.parent_span_id") ? "message" : "other");
+        Trace trace = tracepanel.begin("task", "task.run", destination, all);
+        if (linked) trace.link("sent_by", sender[0], sender[1]);
+        return trace;
     }
 
     /** The listener that handles the message names its trace: Class.method. */

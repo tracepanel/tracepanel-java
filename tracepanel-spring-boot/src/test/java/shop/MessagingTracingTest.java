@@ -53,7 +53,9 @@ class MessagingTracingTest {
                 .containsEntry("task.queue", "books")
                 .containsEntry("task.trigger", "message")
                 .containsEntry("w3c.trace_id", ((Map<String, Object>) request.get("attrs")).get("w3c.trace_id"));
-        assertThat(sent).extracting(span -> ((Map<String, Object>) span.get("attrs")).get("w3c.span_id"))
-                .contains(attrs.get("w3c.parent_span_id"));
+        assertThat((List<Map<String, Object>>) received.get("links")).singleElement().satisfies(link -> {
+            assertThat(link).containsEntry("kind", "sent_by").containsEntry("trace_id", request.get("id"));
+            assertThat(sent).extracting(span -> span.get("id")).contains(link.get("span_id"));
+        });
     }
 }

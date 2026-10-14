@@ -78,7 +78,10 @@ final class RabbitMessages {
             publish.destination(exchange == null || exchange.isEmpty() ? routingKey : exchange);
             publish.attr("messaging.rabbitmq.destination.routing_key", routingKey);
             MessageProperties properties = message.getMessageProperties();
-            if (properties.getHeader(W3c.HEADER) == null) properties.setHeader(W3c.HEADER, publish.traceparent());
+            if (properties.getHeader(W3c.HEADER) == null) {
+                properties.setHeader(W3c.HEADER, publish.traceparent());
+                properties.setHeader(Messages.SENT_BY, publish.sentBy());
+            }
             return message;
         }
     }
@@ -94,7 +97,9 @@ final class RabbitMessages {
             attrs.put("messaging.rabbitmq.destination.routing_key", properties.getReceivedRoutingKey());
             Object traceparent = properties.getHeader(W3c.HEADER);
             String queue = properties.getConsumerQueue() != null ? properties.getConsumerQueue() : properties.getReceivedRoutingKey();
-            Trace trace = Messages.receive("rabbitmq", queue, traceparent == null ? null : traceparent.toString(), attrs);
+            Object sentBy = properties.getHeader(Messages.SENT_BY);
+            Trace trace = Messages.receive("rabbitmq", queue, traceparent == null ? null : traceparent.toString(),
+                    sentBy == null ? null : sentBy.toString(), attrs);
             if (trace == null) return invocation.proceed();
             try {
                 Object result = invocation.proceed();

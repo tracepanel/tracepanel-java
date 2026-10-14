@@ -93,6 +93,7 @@ final class KafkaMessages {
             if (publish != null && record.headers().lastHeader(W3c.HEADER) == null) {
                 publish.destination(record.topic());
                 record.headers().add(W3c.HEADER, publish.traceparent().getBytes(StandardCharsets.UTF_8));
+                record.headers().add(Messages.SENT_BY, publish.sentBy().getBytes(StandardCharsets.UTF_8));
             }
             return record;
         }
@@ -118,8 +119,10 @@ final class KafkaMessages {
             Map<String, Object> attrs = new LinkedHashMap<>();
             attrs.put("messaging.kafka.partition", record.partition());
             attrs.put("messaging.kafka.offset", record.offset());
+            Header sentBy = record.headers().lastHeader(Messages.SENT_BY);
             Trace trace = Messages.receive("kafka", record.topic(),
-                    header == null ? null : new String(header.value(), StandardCharsets.UTF_8), attrs);
+                    header == null ? null : new String(header.value(), StandardCharsets.UTF_8),
+                    sentBy == null ? null : new String(sentBy.value(), StandardCharsets.UTF_8), attrs);
             if (trace != null) receiving.set(trace);
             return record;
         }
