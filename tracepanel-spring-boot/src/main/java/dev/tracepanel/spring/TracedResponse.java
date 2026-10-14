@@ -48,16 +48,6 @@ final class TracedResponse extends HttpServletResponseWrapper {
         return type != null && type.toLowerCase(Locale.ROOT).startsWith("text/html");
     }
 
-    /**
-     * Nothing is held from now on: an async request's answer is written after the filter returned, where no one would
-     * write a held page out. Its headers go now.
-     */
-    void passThrough() {
-        if (started) return;
-        started = true;
-        beforeCommit.run();
-    }
-
     /** The first write decides: an HTML page is held, anything else gets its headers and goes through. */
     private void start() {
         if (started) return;

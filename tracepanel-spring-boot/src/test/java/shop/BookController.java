@@ -4,7 +4,9 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +36,11 @@ public class BookController {
     public String page() {
         return "<!doctype html><html><head><title>Books</title></head><body>"
                 + db.queryForObject("SELECT COUNT(*) FROM book", Integer.class) + " books</body></html>";
+    }
+
+    @GetMapping("/missing")
+    public String missing() {
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no such shelf");
     }
 
     @GetMapping("/boom")

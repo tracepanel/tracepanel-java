@@ -237,4 +237,23 @@ class SpringTracingTest {
         assertThat(sql).extracting(span -> ((Map<String, Object>) span.get("attrs")).get("db.statement"))
                 .containsExactly("SELECT 1 AS io", "SELECT 2 AS resumed");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void an_exception_that_is_a_4xx_answer_is_not_an_error() throws Exception {
+        assertThat(get("/missing").statusCode()).isEqualTo(404);
+        Map<String, Object> trace = FakeAgent.traceAt("/missing");
+
+        assertThat((List<Object>) trace.get("errors")).isEmpty();
+        assertThat(trace).containsEntry("status", "ok");
+    }
+
+    @Test
+    void an_async_page_gets_the_widget() throws Exception {
+        HttpResponse<String> response = get("/later/page");
+        Map<String, Object> trace = FakeAgent.traceAt("/later/page");
+
+        assertThat(response.body()).contains("later").contains("widget.min.js").contains((String) trace.get("id"));
+        assertThat(response.headers().firstValue("Content-Length")).hasValue(String.valueOf(response.body().getBytes(java.nio.charset.StandardCharsets.UTF_8).length));
+    }
 }

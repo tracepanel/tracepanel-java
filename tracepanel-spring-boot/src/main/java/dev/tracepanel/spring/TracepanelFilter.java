@@ -9,6 +9,8 @@ import jakarta.servlet.AsyncListener;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.ServletResponseWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -27,6 +29,7 @@ import org.springframework.web.servlet.HandlerMapping;
 final class TracepanelFilter extends OncePerRequestFilter {
     // W3C: a caller's trace, which the agent links this request to.
     private static final String TRACE = TracepanelFilter.class.getName() + ".trace";
+    private static final String ORIGIN = TracepanelFilter.class.getName() + ".origin";
     private static final Pattern TRACEPARENT = Pattern.compile("^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$");
 
     private final Tracepanel tracepanel;
@@ -77,7 +80,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
             throw e;
         } finally {
             if (failure == null && request.isAsyncStarted()) {
-                later(trace, request, response, traced, origin);
+                later(trace, request, response, origin);
             } else {
                 finish(trace, request, response, traced, origin, failure);
             }
@@ -85,17 +88,19 @@ final class TracepanelFilter extends OncePerRequestFilter {
     }
 
     /**
-     * The handler answers later (a suspend function, a Callable, a DeferredResult, a Mono): the trace ends with the
-     * response, and goes with the request to the thread that completes it. This one works for no trace meanwhile.
+     * The handler answers later (a suspend function, a Callable, a DeferredResult, a Mono): the async dispatch writes
+     * the answer (its page gets the widget there), and the trace ends with the response. This thread works for no
+     * trace meanwhile.
      */
-    private void later(Trace trace, HttpServletRequest request, HttpServletResponse response, TracedResponse traced, String origin) {
+    private void later(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {
         request.setAttribute(TRACE, trace);
-        traced.passThrough();
+        request.setAttribute(ORIGIN, origin);
         Tracepanel.bind(null);
         request.getAsyncContext().addListener(new AsyncListener() {
             @Override
-            public void onComplete(AsyncEvent event) throws IOException {
-                finish(trace, request, response, traced, origin, null);
+            public void onComplete(AsyncEvent event) {
+                outcome(trace, request, response, null);
+                tracepanel.finish(trace);
             }
 
             @Override
@@ -115,12 +120,27 @@ final class TracepanelFilter extends OncePerRequestFilter {
         });
     }
 
-    /** The dispatch that writes an async request's answer, in its trace: the errors and views it records are its. */
+    /**
+     * The dispatch that writes an async request's answer, in its trace: the errors and views it records are its, and
+     * a page gets the widget, as a synchronous one does.
+     */
     private void async(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws IOException, ServletException {
-        Trace previous = Tracepanel.bind(request.getAttribute(TRACE) instanceof Trace trace ? trace : null);
-        try {
+        if (!(request.getAttribute(TRACE) instanceof Trace trace)) {
             chain.doFilter(request, response);
+            return;
+        }
+        String origin = String.valueOf(request.getAttribute(ORIGIN));
+        // Spring writes the answer through the request's own wrapper (under its async one): the page is held there,
+        // and goes out to the container's response under it.
+        TracedResponse own = traced(response);
+        TracedResponse traced = own != null ? own : new TracedResponse(response, () -> headers(trace, request, response, origin));
+        HttpServletResponse out = (HttpServletResponse) traced.getResponse();
+        Trace previous = Tracepanel.bind(trace);
+        try {
+            chain.doFilter(request, own != null ? response : traced);
+            // A dispatch that started another async step (a nested Callable) writes nothing yet.
+            if (!request.isAsyncStarted()) respond(trace, request, out, traced, origin, null);
         } finally {
             Tracepanel.bind(previous);
         }
@@ -128,6 +148,22 @@ final class TracepanelFilter extends OncePerRequestFilter {
 
     private void finish(Trace trace, HttpServletRequest request, HttpServletResponse response, TracedResponse traced,
             String origin, Throwable failure) throws IOException {
+        outcome(trace, request, response, failure);
+        respond(trace, request, response, traced, origin, failure);
+        tracepanel.finish(trace);
+        if (Tracepanel.current() == trace) Tracepanel.bind(null);
+    }
+
+    /** This filter's wrapper in a response's chain of wrappers, or null. */
+    private static TracedResponse traced(ServletResponse response) {
+        for (ServletResponse current = response; current instanceof ServletResponseWrapper wrapper; current = wrapper.getResponse()) {
+            if (current instanceof TracedResponse traced) return traced;
+        }
+        return null;
+    }
+
+    /** The trace's route, status and errors, once the request has its answer. */
+    private static void outcome(Trace trace, HttpServletRequest request, HttpServletResponse response, Throwable failure) {
         Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         if (route instanceof String pattern && !pattern.isEmpty()) {
             trace.attr("http.route", pattern);
@@ -138,8 +174,14 @@ final class TracepanelFilter extends OncePerRequestFilter {
         if (status >= 500) trace.failed();
         // An exception the app answered with a 4xx (a missing record) was handled; one that failed the request wasn't.
         if (trace.hasErrors()) trace.errorsHandled(status < 500);
+    }
+
+    /** The held page out, with the widget, or the headers on what went out as written. */
+    private void respond(Trace trace, HttpServletRequest request, HttpServletResponse response, TracedResponse traced,
+            String origin, Throwable failure) throws IOException {
+        int status = failure != null ? 500 : response.getStatus();
         byte[] page = traced.page();
-        if (page != null && failure == null && !request.isAsyncStarted()) {
+        if (page != null && failure == null) {
             headers(trace, request, response, origin);
             String html = Widget.decorate(new String(page, traced.charset()), trace, request.getMethod(), status,
                     tracepanel.config().prefix(), runtime);
@@ -149,8 +191,6 @@ final class TracepanelFilter extends OncePerRequestFilter {
         } else if (!response.isCommitted()) {
             headers(trace, request, response, origin);
         }
-        tracepanel.finish(trace);
-        if (Tracepanel.current() == trace) Tracepanel.bind(null);
     }
 
     private void headers(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {

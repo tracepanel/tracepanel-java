@@ -22,6 +22,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.listener.RecordInterceptor;
 import org.springframework.context.annotation.Role;
 import org.springframework.core.task.TaskDecorator;
+import org.springframework.util.ClassUtils;
 import org.springframework.core.env.Environment;
 
 /**
@@ -140,7 +141,8 @@ public class TracepanelAutoConfiguration {
         for (String name : listable.getBeanNamesForAnnotation(SpringBootApplication.class)) {
             Class<?> type = listable.getType(name);
             if (type == null) continue;
-            for (Annotation annotation : type.getAnnotations()) {
+            // The app's own class, not Spring's generated subclass of it: kotlin.Metadata isn't inherited.
+            for (Annotation annotation : ClassUtils.getUserClass(type).getAnnotations()) {
                 if (annotation.annotationType().getName().equals("kotlin.Metadata")) return kotlinRuntime();
             }
         }
