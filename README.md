@@ -1,4 +1,4 @@
-# Tracepanel for Java and Spring Boot
+# Tracepanel for Java, Spring Boot and Ktor
 
 Tracepanel shows what each request of your app did: its SQL with the line of
 your code that ran each statement, its logs and its errors. It finds what to
@@ -36,6 +36,34 @@ another one, and without a network the SDK runs `tracepanel-agent` from the
 
 Spring Boot 3.5 and 4 with Spring MVC, on Java 17 or later, in Java or in
 Kotlin. WebFlux comes next.
+
+## Ktor
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("dev.tracepanel:tracepanel-ktor:0.2.0")
+}
+```
+
+```kotlin
+fun Application.module() {
+    install(Tracepanel)
+    val db = Database.connect(Jdbc.dataSource(hikari, "default"))
+    val http = HttpClient(CIO) { install(TracepanelClient) }
+}
+```
+
+Each call is a trace named by its route (`GET /books/{id}`). Its coroutines
+carry it to every thread they run on, so the queries of a suspended
+transaction on `Dispatchers.IO` are in it. `Jdbc.dataSource` records a
+DataSource's SQL (Ktor has no DI to find it by), and `TracepanelClient`
+the client's calls. An HTML page gets the badge, however it was written,
+and the console answers at `/__tracepanel__/`.
+
+Tracepanel is on in Ktor's development mode (`-Dio.ktor.development=true`,
+or `ktor.development` in the config), or with `TRACEPANEL_ENABLED=1`. The
+dependency goes into the production build, where it stays off.
 
 ## What it records
 
@@ -100,7 +128,8 @@ Redis, Kafka and RabbitMQ need a server of each:
 that version's downloads.
 
 `tracepanel-core` records traces and talks to the agent, with no framework and
-no dependencies. `tracepanel-spring-boot` is the Spring Boot integration.
+no dependencies. `tracepanel-spring-boot` is the Spring Boot integration,
+`tracepanel-ktor` the Ktor one.
 
 ## License
 
