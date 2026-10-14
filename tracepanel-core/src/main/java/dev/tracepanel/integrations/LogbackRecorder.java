@@ -1,4 +1,4 @@
-package dev.tracepanel.spring;
+package dev.tracepanel.integrations;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -14,15 +14,15 @@ import java.util.Map;
 import org.slf4j.LoggerFactory;
 
 /** Log records made while a trace runs, in that trace: level, logger, message, and the app's line that logged it. */
-final class LogbackRecorder extends AppenderBase<ILoggingEvent> {
+public final class LogbackRecorder extends AppenderBase<ILoggingEvent> {
     private final Tracepanel tracepanel;
 
     LogbackRecorder(Tracepanel tracepanel) {
         this.tracepanel = tracepanel;
     }
 
-    /** On the root logger of Logback (Spring Boot's default), when Logback is the one logging. */
-    static void install(Tracepanel tracepanel) {
+    /** On the root logger of Logback (Spring Boot's and Ktor's default), when Logback is the one logging. */
+    public static void install(Tracepanel tracepanel) {
         if (!(LoggerFactory.getILoggerFactory() instanceof LoggerContext context)) return;
         LogbackRecorder appender = new LogbackRecorder(tracepanel);
         appender.setContext(context);

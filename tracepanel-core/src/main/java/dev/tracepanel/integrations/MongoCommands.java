@@ -1,4 +1,4 @@
-package dev.tracepanel.spring;
+package dev.tracepanel.integrations;
 
 import com.mongodb.MongoClientSettings;
 import com.mongodb.event.CommandFailedEvent;
@@ -19,7 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
-import org.springframework.beans.factory.config.BeanPostProcessor;
 
 /**
  * MongoDB: every command the app sends (Spring Data MongoDB, MongoTemplate, the driver) a mongodb span, through the
@@ -27,8 +26,10 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
  * that sent it. As with SQL, the command's shape is its db.statement ({"find": "books", "filter": {"author": "?"}}),
  * its values db.params and db.params_hash: the agent tells an N+1 (a find per item) from duplicates by them. The
  * Python SDK writes the same.
+ *
+ * <p>A framework's integration adds it to the settings the app's MongoClient is built from: {@link #settings}.
  */
-final class MongoCommands implements CommandListener {
+public final class MongoCommands implements CommandListener {
     // What a driver sends for itself, not for the app.
     private static final Set<String> OWN = Set.of("hello", "ismaster", "ping", "saslstart", "saslcontinue",
             "authenticate", "getnonce", "endsessions", "buildinfo", "killcursors", "getlasterror");
@@ -147,15 +148,9 @@ final class MongoCommands implements CommandListener {
         return batch != null && batch.isArray() ? batch.asArray().size() : null;
     }
 
-    /** The settings Spring Boot builds its MongoClient from, with this listener: each client the app gets. */
-    static final class Settings implements BeanPostProcessor {
-        private final MongoCommands listener = new MongoCommands();
-
-        @Override
-        public Object postProcessAfterInitialization(Object bean, String name) {
-            if (!(bean instanceof MongoClientSettings settings)) return bean;
-            if (settings.getCommandListeners().stream().anyMatch(MongoCommands.class::isInstance)) return bean;
-            return MongoClientSettings.builder(settings).addCommandListener(listener).build();
-        }
+    /** The settings with this listener among their command listeners, once. */
+    public static MongoClientSettings settings(MongoClientSettings settings) {
+        if (settings.getCommandListeners().stream().anyMatch(MongoCommands.class::isInstance)) return settings;
+        return MongoClientSettings.builder(settings).addCommandListener(new MongoCommands()).build();
     }
 }

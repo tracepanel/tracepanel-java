@@ -43,7 +43,7 @@ public class TracepanelAutoConfiguration {
         String kotlin = kotlinVersion(beans);
         if (kotlin != null) tracepanel.language("kotlin", kotlin);
         tracepanel.framework("Spring Boot " + SpringBootVersion.getVersion());
-        if (isPresent("ch.qos.logback.classic.LoggerContext")) LogbackRecorder.install(tracepanel);
+        if (isPresent("ch.qos.logback.classic.LoggerContext")) dev.tracepanel.integrations.LogbackRecorder.install(tracepanel);
         return tracepanel;
     }
 
@@ -107,16 +107,16 @@ public class TracepanelAutoConfiguration {
     /** MongoDB commands, from the settings Spring Boot builds its MongoClient from. */
     @Bean
     @ConditionalOnClass(name = "com.mongodb.MongoClientSettings")
-    static MongoCommands.Settings tracepanelMongo() {
-        return new MongoCommands.Settings();
+    static MongoSettings tracepanelMongo() {
+        return new MongoSettings();
     }
 
     /** Redis commands through Lettuce, from each of Spring Data Redis's connection factories. */
     @Bean
     @ConditionalOnClass(name = {"io.lettuce.core.event.command.CommandListener",
             "org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory"})
-    static RedisCommands.Factories tracepanelRedis() {
-        return new RedisCommands.Factories();
+    static RedisFactories tracepanelRedis() {
+        return new RedisFactories();
     }
 
     /** And the JDK's HttpClient beans. */

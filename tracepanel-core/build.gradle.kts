@@ -1,7 +1,18 @@
-// No dependencies: it runs inside the app, whatever the app depends on.
-
 import java.net.URI
 import groovy.json.JsonSlurper
+
+// No dependencies: it runs inside the app, whatever the app depends on. The integrations with a driver or a logging
+// library (dev.tracepanel.integrations) compile against the oldest versions supported, Spring Boot 3.5's, and run with
+// the app's own.
+
+dependencies {
+    compileOnly(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
+    compileOnly("ch.qos.logback:logback-classic")
+    compileOnly("org.mongodb:mongodb-driver-core")
+    compileOnly("io.lettuce:lettuce-core")
+    compileOnly("org.apache.kafka:kafka-clients")
+}
+
 
 // The agent's npm platform packages: the binary for each platform, and npm's integrity (SHA-512) of its tarball.
 val platforms = listOf(

@@ -3,6 +3,7 @@ package dev.tracepanel.spring;
 import dev.tracepanel.core.Messages;
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.W3c;
+import dev.tracepanel.integrations.KafkaProducerHeaders;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,9 +14,7 @@ import org.aopalliance.intercept.MethodInterceptor;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerInterceptor;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.header.Header;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -79,33 +78,10 @@ final class KafkaMessages {
             if (configured instanceof String names && !names.isBlank()) classes.addAll(Arrays.asList(names.split("\\s*,\\s*")));
             else if (configured instanceof List<?> list) list.forEach(item -> classes.add(item instanceof Class<?> type ? type.getName() : String.valueOf(item)));
             else if (configured instanceof Class<?> type) classes.add(type.getName());
-            if (classes.contains(Headers.class.getName())) return;
-            classes.add(Headers.class.getName());
+            if (classes.contains(KafkaProducerHeaders.class.getName())) return;
+            classes.add(KafkaProducerHeaders.class.getName());
             factory.updateConfigs(Map.of(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, String.join(",", classes)));
         }
-    }
-
-    /** In the producer, on the sending thread: the record of the publish under way gets its traceparent. */
-    public static final class Headers implements ProducerInterceptor<Object, Object> {
-        @Override
-        public ProducerRecord<Object, Object> onSend(ProducerRecord<Object, Object> record) {
-            Messages.Publish publish = Messages.publishing();
-            if (publish != null && record.headers().lastHeader(W3c.HEADER) == null) {
-                publish.destination(record.topic());
-                record.headers().add(W3c.HEADER, publish.traceparent().getBytes(StandardCharsets.UTF_8));
-                record.headers().add(Messages.SENT_BY, publish.sentBy().getBytes(StandardCharsets.UTF_8));
-            }
-            return record;
-        }
-
-        @Override
-        public void onAcknowledgement(RecordMetadata metadata, Exception exception) {}
-
-        @Override
-        public void close() {}
-
-        @Override
-        public void configure(Map<String, ?> configs) {}
     }
 
     /** Each record a listener container hands to its listener: a task trace, from before the listener to after it. */

@@ -1,8 +1,7 @@
-package dev.tracepanel.spring;
+package dev.tracepanel.integrations;
 
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.Tracepanel;
-import io.lettuce.core.AbstractRedisClient;
 import io.lettuce.core.event.command.CommandBaseEvent;
 import io.lettuce.core.event.command.CommandFailedEvent;
 import io.lettuce.core.event.command.CommandListener;
@@ -12,15 +11,13 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.beans.factory.config.BeanPostProcessor;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 
 /**
- * Redis through Lettuce (Spring Data Redis, the cache, sessions): every command a redis span of the trace that sent
+ * Redis through Lettuce (Spring Data Redis, the cache, sessions, or a RedisClient of the app's own: client.addListener): every command a redis span of the trace that sent
  * it (GET user:1), with its key, the server and the app's line, through Lettuce's own command listener. The agent
  * finds an N+1 of GETs per item and the same command repeated, as with the Python SDK's.
  */
-final class RedisCommands implements CommandListener {
+public final class RedisCommands implements CommandListener {
     private static final String PENDING = "tracepanel";
 
     private record Pending(Trace trace, long start, String name, Map<String, Object> attrs) {}
@@ -29,7 +26,8 @@ final class RedisCommands implements CommandListener {
     private final int port;
     private final int database;
 
-    RedisCommands(String host, int port, int database) {
+    /** For a client of the server at host:port, its database. */
+    public RedisCommands(String host, int port, int database) {
         this.host = host;
         this.port = port;
         this.database = database;
@@ -76,16 +74,5 @@ final class RedisCommands implements CommandListener {
         byte[] bytes = new byte[copy.remaining()];
         copy.get(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
-    }
-
-    /** Each Lettuce connection factory's client gets the listener, with the server it talks to. */
-    static final class Factories implements BeanPostProcessor {
-        @Override
-        public Object postProcessAfterInitialization(Object bean, String name) {
-            if (!(bean instanceof LettuceConnectionFactory factory)) return bean;
-            AbstractRedisClient client = factory.getNativeClient();
-            if (client != null) client.addListener(new RedisCommands(factory.getHostName(), factory.getPort(), factory.getDatabase()));
-            return bean;
-        }
     }
 }
