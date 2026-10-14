@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootVersion;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -133,5 +135,30 @@ class SpringTracingTest {
         assertThat(answer.statusCode()).isEqualTo(200);
         assertThat(answer.body()).isEqualTo("console /api/counts?q=since:1h");
         assertThat(FakeAgent.CONSOLE_CALLS).contains("GET /api/counts?q=since:1h");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"rest-client", "rest-template", "web-client"})
+    @SuppressWarnings("unchecked")
+    void a_call_to_an_http_api_is_a_span_and_the_app_it_reaches_links_its_trace_to_it(String client) throws Exception {
+        books();
+        assertThat(get("/relay/" + client).statusCode()).isEqualTo(200);
+        Map<String, Object> caller = FakeAgent.traceAt("/relay/" + client);
+        Map<String, Object> called = FakeAgent.traceAt("/shelves/" + client + "/books");
+
+        List<Map<String, Object>> spans = (List<Map<String, Object>>) caller.get("spans");
+        Map<String, Object> call = spans.stream().filter(span -> "http.client".equals(span.get("kind"))).findFirst().orElseThrow();
+        Map<String, Object> attrs = (Map<String, Object>) call.get("attrs");
+        Map<String, Object> calledAttrs = (Map<String, Object>) called.get("attrs");
+
+        assertThat(call).containsEntry("name", "GET 127.0.0.1/shelves/" + client + "/books").containsEntry("status", "ok");
+        assertThat(attrs).containsEntry("http.request.method", "GET")
+                .containsEntry("http.response.status_code", 200)
+                .containsEntry("server.address", "127.0.0.1")
+                .containsEntry("server.port", port);
+        assertThat(String.valueOf(attrs.get("code.origin"))).matches("src/test/java/shop/RelayController\\.java:\\d+ in relay");
+
+        assertThat(calledAttrs).containsEntry("w3c.parent_span_id", attrs.get("w3c.span_id"))
+                .containsEntry("w3c.trace_id", ((Map<String, Object>) caller.get("attrs")).get("w3c.trace_id"));
     }
 }

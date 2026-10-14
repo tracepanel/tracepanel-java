@@ -59,4 +59,10 @@ class CoreTest {
         assertTrue(!stacks.inApp("com.shop.BookService$$SpringCGLIB$$0"));
         assertEquals("com/shop/BookService.java:42 in list", stacks.where("com.shop.BookService", "BookService.java", 42, "list"));
     }
+
+    @Test
+    void a_traceparent_is_written_from_the_ulids_as_the_python_sdk_writes_it() {
+        assertEquals("01a13b4a0cae6df75a2aef8e76021409", W3c.traceHex("01M4XMM35EDQVNMAQFHSV04509"));
+        assertEquals("5a2aef8e7602140a", W3c.spanId("01M4XMM35EDQVNMAQFHSV0450A"));
+    }
 }

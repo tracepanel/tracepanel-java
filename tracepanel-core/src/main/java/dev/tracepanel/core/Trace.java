@@ -23,6 +23,7 @@ public final class Trace {
     private final List<Map<String, Object>> logs = new ArrayList<>();
     private final List<Map<String, Object>> errors = new ArrayList<>();
     private final Deque<Map<String, Object>> open = new ArrayDeque<>();
+    private final List<Map<String, Object>> links = new ArrayList<>();
     private final Map<String, Object> root;
     private String name;
     private String status = "ok";
@@ -91,7 +92,14 @@ public final class Trace {
 
     /** A span that already happened: started `micros` ago, with no children. */
     public synchronized Map<String, Object> done(String kind, String name, Map<String, Object> attrs, long startMicros, boolean failed) {
+        return done(kind, name, attrs, startMicros, failed, Ulid.next());
+    }
+
+    /** The same, with its id given: a call out names its span in its traceparent before it is recorded. */
+    public synchronized Map<String, Object> done(
+            String kind, String name, Map<String, Object> attrs, long startMicros, boolean failed, String spanId) {
         Map<String, Object> span = span(kind, name, attrs, startMicros);
+        span.put("id", spanId);
         span.put("duration", nowMicros() - startMicros);
         if (failed) span.put("status", "error");
         if ("sql".equals(kind)) {
@@ -142,6 +150,20 @@ public final class Trace {
         for (Map<String, Object> error : errors) error.put("handled", handled);
     }
 
+    /** A link to another trace: `enqueued_by` from a task to the trace that queued it, at the span that did. */
+    public synchronized void link(String kind, String traceId, String spanId) {
+        Map<String, Object> link = new LinkedHashMap<>();
+        link.put("kind", kind);
+        link.put("trace_id", traceId);
+        link.put("span_id", spanId);
+        links.add(link);
+    }
+
+    /** The span open now (where the next one goes), or the root. */
+    public synchronized String currentSpan() {
+        return current();
+    }
+
     public boolean hasErrors() {
         return !errors.isEmpty();
     }
@@ -163,7 +185,7 @@ public final class Trace {
         doc.put("spans", spans);
         doc.put("logs", logs);
         doc.put("errors", errors);
-        doc.put("links", List.of());
+        doc.put("links", links);
         doc.put("issues", List.of());
         return doc;
     }
