@@ -1,0 +1,6 @@
+.gradle/
+build/
+.tracepanel/
+.idea/
+*.iml
+.DS_Store
