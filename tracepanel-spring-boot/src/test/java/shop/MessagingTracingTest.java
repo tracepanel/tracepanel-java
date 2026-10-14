@@ -2,6 +2,7 @@ package shop;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.tracepanel.testing.FakeAgent;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;

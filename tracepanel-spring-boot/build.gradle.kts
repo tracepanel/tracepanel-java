@@ -2,8 +2,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     // The tests' Kotlin app (coroutines): Kotlin compiles them, as a Kotlin app's build does, open for Spring's proxies.
-    kotlin("jvm") version "2.3.21"
-    kotlin("plugin.spring") version "2.3.21"
+    kotlin("jvm")
+    kotlin("plugin.spring")
 }
 
 // Spring Boot's own libraries are the app's: compiled against, never brought along.
@@ -25,6 +25,7 @@ dependencies {
     compileOnly("org.jetbrains.kotlin:kotlin-stdlib")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 
+    testImplementation(testFixtures(project(":tracepanel-core")))
     testImplementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc")
     testImplementation("org.springframework.boot:spring-boot-starter-jdbc")
@@ -57,6 +58,7 @@ testing {
             }
             dependencies {
                 implementation(project())
+                implementation(testFixtures(project(":tracepanel-core")))
                 implementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
                 implementation("org.springframework.boot:spring-boot-starter-web")
                 implementation("org.springframework.boot:spring-boot-starter-jdbc")

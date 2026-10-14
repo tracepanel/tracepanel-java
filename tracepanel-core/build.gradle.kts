@@ -5,7 +5,13 @@ import groovy.json.JsonSlurper
 // library (dev.tracepanel.integrations) compile against the oldest versions supported, Spring Boot 3.5's, and run with
 // the app's own.
 
+plugins {
+    // The tests' fake agent, for every module's tests.
+    `java-test-fixtures`
+}
+
 dependencies {
+    testFixturesImplementation("com.jayway.jsonpath:json-path:2.9.0")
     compileOnly(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
     compileOnly("ch.qos.logback:logback-classic")
     compileOnly("org.mongodb:mongodb-driver-core")

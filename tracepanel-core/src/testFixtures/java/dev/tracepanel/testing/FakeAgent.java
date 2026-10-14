@@ -1,4 +1,4 @@
-package shop;
+package dev.tracepanel.testing;
 
 import com.jayway.jsonpath.JsonPath;
 import com.sun.net.httpserver.HttpServer;

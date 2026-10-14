@@ -1,6 +1,9 @@
 // Built with a Java 21 toolchain for Java 17: the baseline of Spring Boot 3.5 and 4.
 plugins {
     `java-library`
+    // The Kotlin modules' and tests' compiler, declared once for the build.
+    kotlin("jvm") version "2.3.21" apply false
+    kotlin("plugin.spring") version "2.3.21" apply false
 }
 
 allprojects {

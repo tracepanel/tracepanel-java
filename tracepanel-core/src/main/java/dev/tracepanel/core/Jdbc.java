@@ -29,6 +29,24 @@ public final class Jdbc {
 
     private Jdbc() {}
 
+    /**
+     * A DataSource whose connections are recorded: for an app with no framework integration to find it (Ktor with
+     * Exposed or plain JDBC), Jdbc.dataSource(hikari, "default").
+     */
+    public static javax.sql.DataSource dataSource(javax.sql.DataSource dataSource, String alias) {
+        if (Proxy.isProxyClass(dataSource.getClass()) && Proxy.getInvocationHandler(dataSource) instanceof DataSources) return dataSource;
+        return (javax.sql.DataSource) Proxy.newProxyInstance(Jdbc.class.getClassLoader(),
+                new Class<?>[] {javax.sql.DataSource.class}, new DataSources(dataSource, alias));
+    }
+
+    private record DataSources(javax.sql.DataSource target, String alias) implements InvocationHandler {
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            Object result = call(target, method, args);
+            return result instanceof Connection connection && method.getName().equals("getConnection") ? wrap(connection, alias) : result;
+        }
+    }
+
     /** A connection whose statements are recorded, in whichever trace is current when they run. */
     public static Connection wrap(Connection connection, String alias) {
         if (Proxy.isProxyClass(connection.getClass()) && Proxy.getInvocationHandler(connection) instanceof Connections) {

@@ -27,6 +27,8 @@ public final class Trace {
     private final Map<String, Object> root;
     private String name;
     private String status = "ok";
+    // Ended: its document is on its way to the agent, and what comes later (a hook after the response) isn't in it.
+    private boolean finished;
     private long duration;
     private int queries;
     private long dbMicros;
@@ -47,20 +49,22 @@ public final class Trace {
         return id;
     }
 
-    public void name(String name) {
+    public synchronized void name(String name) {
+        if (finished) return;
         this.name = name;
         root.put("name", name);
     }
 
-    public void attr(String key, Object value) {
-        attrs.put(key, value);
+    public synchronized void attr(String key, Object value) {
+        if (!finished) attrs.put(key, value);
     }
 
-    public Object attr(String key) {
+    public synchronized Object attr(String key) {
         return attrs.get(key);
     }
 
-    public void failed() {
+    public synchronized void failed() {
+        if (finished) return;
         status = "error";
         root.put("status", "error");
     }
@@ -81,11 +85,12 @@ public final class Trace {
     /** A span under the one open now, open until `end`. */
     public synchronized Map<String, Object> begin(String kind, String name, Map<String, Object> attrs) {
         Map<String, Object> span = span(kind, name, attrs, nowMicros());
-        open.push(span);
+        if (!finished) open.push(span);
         return span;
     }
 
     public synchronized void end(Map<String, Object> span, boolean failed) {
+        if (finished) return;
         span.put("duration", nowMicros() - (long) span.get("start"));
         if (failed) span.put("status", "error");
         if ("sql".equals(span.get("kind"))) {
@@ -125,6 +130,7 @@ public final class Trace {
     }
 
     public synchronized void log(String level, String logger, String message, String exception, Map<String, Object> attrs) {
+        if (finished) return;
         Map<String, Object> log = new LinkedHashMap<>();
         log.put("span_id", current());
         log.put("time", nowMicros());
@@ -138,6 +144,7 @@ public final class Trace {
 
     /** An exception, once: the same one seen again (rethrown up the stack) isn't another error. */
     public synchronized void error(Throwable error, Stacks stacks, boolean handled) {
+        if (finished) return;
         for (Map<String, Object> seen : errors) if (seen.get("_object") == error) return;
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("span_id", current());
@@ -162,11 +169,13 @@ public final class Trace {
 
     /** Marks the errors recorded so far as handled or not: an exception the app answered with a 4xx was handled. */
     public synchronized void errorsHandled(boolean handled) {
+        if (finished) return;
         for (Map<String, Object> error : errors) error.put("handled", handled);
     }
 
     /** A link to another trace: `enqueued_by` from a task to the trace that queued it, at the span that did. */
     public synchronized void link(String kind, String traceId, String spanId) {
+        if (finished) return;
         Map<String, Object> link = new LinkedHashMap<>();
         link.put("kind", kind);
         link.put("trace_id", traceId);
@@ -179,12 +188,13 @@ public final class Trace {
         return current();
     }
 
-    public boolean hasErrors() {
+    public synchronized boolean hasErrors() {
         return !errors.isEmpty();
     }
 
     /** The trace ended: its document, as the agent takes it. */
     public synchronized Map<String, Object> finish() {
+        finished = true;
         duration = nowMicros() - start;
         root.put("duration", duration);
         // A span still open (its work ended without saying so) lasts until the trace's end.
@@ -216,7 +226,7 @@ public final class Trace {
         span.put("duration", 0L);
         span.put("status", "ok");
         span.put("attrs", new LinkedHashMap<>(attrs));
-        if (spans.size() < MAX_SPANS) spans.add(span);
+        if (!finished && spans.size() < MAX_SPANS) spans.add(span);
         return span;
     }
 

@@ -87,4 +87,18 @@ class CoreTest {
         assertTrue(page.contains("data-tracepanel-runtime=\"Java 21 &#183; Spring Boot 4.1\""), page);
         assertTrue(page.chars().allMatch(c -> c < 128), page);
     }
+
+    @Test
+    void a_trace_that_ended_takes_nothing_more() {
+        Trace trace = new Trace("http", "GET /", java.util.Map.of());
+        java.util.Map<String, Object> doc = trace.finish();
+
+        trace.error(new IllegalStateException("late"), new Stacks(java.nio.file.Path.of("."), java.util.List.of()), false);
+        trace.done("sql", "SELECT", java.util.Map.of(), Trace.nowMicros(), false);
+        trace.attr("late", true);
+
+        assertEquals(java.util.List.of(), doc.get("errors"));
+        assertEquals(1, ((java.util.List<?>) doc.get("spans")).size());
+        assertEquals(null, ((java.util.Map<?, ?>) doc.get("attrs")).get("late"));
+    }
 }
