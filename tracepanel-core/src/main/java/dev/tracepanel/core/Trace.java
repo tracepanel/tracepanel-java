@@ -103,8 +103,18 @@ public final class Trace {
     /** The same, with its id given: a call out names its span in its traceparent before it is recorded. */
     public synchronized Map<String, Object> done(
             String kind, String name, Map<String, Object> attrs, long startMicros, boolean failed, String spanId) {
+        return done(kind, name, attrs, startMicros, failed, spanId, null);
+    }
+
+    /**
+     * The same, under `parentId` (null: the span open now): a call that completes later, on another thread, goes
+     * where it was made.
+     */
+    public synchronized Map<String, Object> done(String kind, String name, Map<String, Object> attrs, long startMicros,
+            boolean failed, String spanId, String parentId) {
         Map<String, Object> span = span(kind, name, attrs, startMicros);
         span.put("id", spanId);
+        if (parentId != null) span.put("parent_id", parentId);
         span.put("duration", nowMicros() - startMicros);
         if (failed) span.put("status", "error");
         if ("sql".equals(kind)) {

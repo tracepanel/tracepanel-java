@@ -14,6 +14,20 @@ public final class W3c {
 
     private W3c() {}
 
+    // version 00 (and any later one, read as 00): trace id, parent span id, flags; all zeros is invalid.
+    private static final java.util.regex.Pattern TRACEPARENT =
+            java.util.regex.Pattern.compile("^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})");
+
+    /** A received traceparent as its trace's attributes, the W3C trace and the caller's span; none if invalid. */
+    public static java.util.Map<String, Object> incoming(String header) {
+        java.util.regex.Matcher match = TRACEPARENT.matcher(header == null ? "" : header.trim().toLowerCase(Locale.ROOT));
+        if (!match.find() || match.group(1).equals("ff") || match.group(2).equals("0".repeat(32))
+                || match.group(3).equals("0".repeat(16))) {
+            return java.util.Map.of();
+        }
+        return java.util.Map.of("w3c.trace_id", match.group(2), "w3c.parent_span_id", match.group(3));
+    }
+
     /** The traceparent a call made in `trace` carries, whose span is `spanId`. */
     public static String outgoing(Trace trace, String spanId) {
         return "00-" + traceId(trace) + "-" + spanId(spanId) + "-01";

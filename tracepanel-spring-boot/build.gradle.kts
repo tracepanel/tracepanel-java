@@ -20,6 +20,8 @@ dependencies {
     compileOnly("org.mongodb:mongodb-driver-core")
     compileOnly("io.lettuce:lettuce-core")
     compileOnly("org.springframework.data:spring-data-redis")
+    compileOnly("org.springframework.kafka:spring-kafka")
+    compileOnly("org.springframework.amqp:spring-rabbit")
     compileOnly("org.jetbrains.kotlin:kotlin-stdlib")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 
@@ -30,6 +32,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-restclient")
     testImplementation("org.springframework.boot:spring-boot-starter-data-mongodb")
     testImplementation("org.springframework.boot:spring-boot-starter-data-redis")
+    testImplementation("org.springframework.boot:spring-boot-starter-kafka")
+    testImplementation("org.springframework.boot:spring-boot-starter-amqp")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("com.h2database:h2")
     testImplementation("org.jetbrains.kotlin:kotlin-stdlib")
@@ -59,6 +63,8 @@ testing {
                 implementation("org.springframework.boot:spring-boot-starter-webflux")
                 implementation("org.springframework.boot:spring-boot-starter-data-mongodb")
                 implementation("org.springframework.boot:spring-boot-starter-data-redis")
+                implementation("org.springframework.kafka:spring-kafka")
+                implementation("org.springframework.boot:spring-boot-starter-amqp")
                 implementation("org.springframework.boot:spring-boot-starter-test")
                 implementation("com.h2database:h2")
             }
@@ -79,6 +85,14 @@ tasks.withType<Test>().configureEach {
         environment("SPRING_MONGODB_URI", it)
     }
     System.getenv("TEST_REDIS_PORT")?.let { environment("SPRING_DATA_REDIS_PORT", it) }
+    // Kafka and RabbitMQ, when given; without them the listener containers don't start.
+    val kafka = System.getenv("TEST_KAFKA_BOOTSTRAP")
+    val rabbit = System.getenv("TEST_RABBITMQ_PORT")
+    if (kafka != null) environment("SPRING_KAFKA_BOOTSTRAP_SERVERS", kafka)
+    environment("SPRING_KAFKA_LISTENER_AUTO_STARTUP", (kafka != null).toString())
+    environment("SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET", "earliest")
+    if (rabbit != null) environment("SPRING_RABBITMQ_PORT", rabbit)
+    environment("SPRING_RABBITMQ_LISTENER_SIMPLE_AUTO_STARTUP", (rabbit != null).toString())
 }
 
 tasks.check {

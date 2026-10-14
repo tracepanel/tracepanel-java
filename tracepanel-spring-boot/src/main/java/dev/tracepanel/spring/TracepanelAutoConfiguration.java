@@ -18,6 +18,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.listener.RecordInterceptor;
 import org.springframework.context.annotation.Role;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.core.env.Environment;
@@ -73,6 +75,32 @@ public class TracepanelAutoConfiguration {
     @ConditionalOnMissingBean(TaskDecorator.class)
     TaskDecorator tracepanelQueuing() {
         return new Background.Queuing();
+    }
+
+    /** Kafka: KafkaTemplate's sends, with their traceparent. */
+    @Bean
+    @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
+    static KafkaMessages.Templates tracepanelKafka() {
+        return new KafkaMessages.Templates();
+    }
+
+    /** RabbitMQ: RabbitTemplate's publishes and the listener containers' deliveries. */
+    @Bean
+    @ConditionalOnClass(name = "org.springframework.amqp.rabbit.core.RabbitTemplate")
+    static RabbitMessages.Beans tracepanelRabbit() {
+        return new RabbitMessages.Beans();
+    }
+
+    /** The @KafkaListener or @RabbitListener method that handles a message names its trace (neither: no method). */
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    static Advisor tracepanelListeners() {
+        return new StaticMethodMatcherPointcutAdvisor(new Listeners()) {
+            @Override
+            public boolean matches(Method method, Class<?> type) {
+                return Listeners.traced(method, type);
+            }
+        };
     }
 
     /** MongoDB commands, from the settings Spring Boot builds its MongoClient from. */
@@ -138,6 +166,17 @@ public class TracepanelAutoConfiguration {
             return true;
         } catch (ClassNotFoundException e) {
             return false;
+        }
+    }
+
+    /** Each Kafka record a listener receives, a trace: Spring Boot puts a RecordInterceptor bean on its containers. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.kafka.listener.RecordInterceptor")
+    static class KafkaRecords {
+        @Bean
+        @ConditionalOnMissingBean(RecordInterceptor.class)
+        RecordInterceptor<Object, Object> tracepanelKafkaRecords() {
+            return new KafkaMessages.Records();
         }
     }
 }
