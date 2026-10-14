@@ -65,4 +65,17 @@ class CoreTest {
         assertEquals("01a13b4a0cae6df75a2aef8e76021409", W3c.traceHex("01M4XMM35EDQVNMAQFHSV04509"));
         assertEquals("5a2aef8e7602140a", W3c.spanId("01M4XMM35EDQVNMAQFHSV0450A"));
     }
+
+    @Test
+    void the_platform_is_named_as_the_agents_npm_packages_are() {
+        assertEquals("darwin-arm64", AgentDownload.platform("Mac OS X", "aarch64", false));
+        assertEquals("darwin-x64", AgentDownload.platform("Mac OS X", "x86_64", false));
+        assertEquals("linux-x64-gnu", AgentDownload.platform("Linux", "amd64", false));
+        assertEquals("linux-arm64-musl", AgentDownload.platform("Linux", "aarch64", true));
+        assertEquals("linux-ppc64-gnu", AgentDownload.platform("Linux", "ppc64le", false));
+        assertEquals("linux-arm", AgentDownload.platform("Linux", "arm", false));
+        assertEquals("win32-x64", AgentDownload.platform("Windows 11", "amd64", false));
+        assertEquals(null, AgentDownload.platform("FreeBSD", "amd64", false));
+        assertEquals(null, AgentDownload.platform("Linux", "s390x", true));
+    }
 }

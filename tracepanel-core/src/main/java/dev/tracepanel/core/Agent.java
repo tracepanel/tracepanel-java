@@ -21,11 +21,25 @@ public final class Agent {
 
     private final Path store;
     private final Map<String, String> env;
+    private final AgentDownload download;
     private long failedAt = Long.MIN_VALUE / 2;
 
     public Agent(Path store, Map<String, String> env) {
         this.store = store;
         this.env = env;
+        this.download = new AgentDownload(env);
+    }
+
+    /**
+     * Gets the agent's binary ready in the background while the app starts, so its first request doesn't wait for a
+     * download: when no agent runs for the project and none is named.
+     */
+    public void prepare() {
+        String explicit = env.get("TRACEPANEL_AGENT_BIN");
+        if (!autoStart() || (explicit != null && !explicit.isBlank()) || !address().isEmpty()) return;
+        Thread thread = new Thread(download::binary, "tracepanel-agent-download");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     /** The agent's address: TRACEPANEL_AGENT (an agent elsewhere), or the one the project's agent wrote. */
@@ -107,10 +121,15 @@ public final class Agent {
         return !address().isEmpty();
     }
 
-    /** TRACEPANEL_AGENT_BIN, else tracepanel-agent on the PATH. */
+    /**
+     * TRACEPANEL_AGENT_BIN, else the SDK's own version of the agent (from the user's cache, downloaded there the
+     * first time), else tracepanel-agent on the PATH (offline, where none was downloaded).
+     */
     private String binary() {
         String explicit = env.get("TRACEPANEL_AGENT_BIN");
         if (explicit != null && !explicit.isBlank()) return Files.isRegularFile(Path.of(explicit)) ? explicit : null;
+        Path own = download.binary();
+        if (own != null) return own.toString();
         String path = env.getOrDefault("PATH", "");
         for (String dir : path.split(File.pathSeparator)) {
             for (String name : List.of("tracepanel-agent", "tracepanel-agent.exe")) {

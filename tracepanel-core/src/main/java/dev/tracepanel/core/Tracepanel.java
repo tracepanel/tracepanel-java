@@ -25,6 +25,7 @@ public final class Tracepanel {
         this.stacks = new Stacks(config.root(), appPackages);
         this.agent = new Agent(config.storeDir(), System.getenv());
         this.sender = new Sender(config, agent);
+        agent.prepare();
     }
 
     /** The process's Tracepanel, set up on the first call: `appPackages` are the app's own (its frames in stacks). */
