@@ -196,6 +196,7 @@ class SpringTracingTest {
         Map<String, Object> runner = FakeAgent.trace("Jobs.run");
 
         assertThat(scheduled).containsEntry("kind", "command");
+        assertThat((Map<String, Object>) scheduled.get("attrs")).containsEntry("tracepanel.framework", "Spring Boot " + SpringBootVersion.getVersion());
         assertThat((Map<String, Object>) scheduled.get("attrs")).containsEntry("command.schedule", "every 1 hours")
                 .containsEntry("command.trigger", "schedule")
                 .containsEntry("service.role", "command");

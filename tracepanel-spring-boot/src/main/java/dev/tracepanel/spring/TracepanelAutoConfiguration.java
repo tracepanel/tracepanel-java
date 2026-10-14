@@ -7,6 +7,7 @@ import java.util.List;
 import java.lang.annotation.Annotation;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.boot.SpringBootVersion;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -38,6 +39,7 @@ public class TracepanelAutoConfiguration {
         Tracepanel tracepanel = Tracepanel.start(config, packages);
         String kotlin = kotlinVersion(beans);
         if (kotlin != null) tracepanel.language("kotlin", kotlin);
+        tracepanel.framework("Spring Boot " + SpringBootVersion.getVersion());
         if (isPresent("ch.qos.logback.classic.LoggerContext")) LogbackRecorder.install(tracepanel);
         return tracepanel;
     }

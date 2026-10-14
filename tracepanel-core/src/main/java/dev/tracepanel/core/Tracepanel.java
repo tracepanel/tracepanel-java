@@ -19,6 +19,7 @@ public final class Tracepanel {
     private final Sender sender;
     private volatile String language = "java";
     private volatile String languageVersion;
+    private volatile String framework;
 
     private Tracepanel(Config config, List<String> appPackages) {
         this.config = config;
@@ -57,6 +58,11 @@ public final class Tracepanel {
         languageVersion = version;
     }
 
+    /** The app's framework with its version (Spring Boot 4.1.1), on every trace: the app's label is its latest's. */
+    public void framework(String name) {
+        framework = name;
+    }
+
     /** The trace this thread works for, or null. */
     public static Trace current() {
         return CURRENT.get();
@@ -74,6 +80,7 @@ public final class Tracepanel {
         trace.attr("service.role", attrs.getOrDefault("service.role", ROLES.getOrDefault(kind, kind)));
         trace.attr("telemetry.sdk.language", language);
         if (languageVersion != null) trace.attr("tracepanel.language.version", languageVersion);
+        if (framework != null) trace.attr("tracepanel.framework", framework);
         trace.attr("process.runtime.name", System.getProperty("java.vm.name", "java"));
         trace.attr("process.runtime.version", System.getProperty("java.version", ""));
         CURRENT.set(trace);
