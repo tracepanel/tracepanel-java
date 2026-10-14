@@ -2,6 +2,7 @@ package dev.tracepanel.spring;
 
 import dev.tracepanel.core.Config;
 import dev.tracepanel.core.Tracepanel;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.lang.annotation.Annotation;
 import org.springframework.beans.factory.BeanFactory;
@@ -9,9 +10,15 @@ import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.aop.Advisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcutAdvisor;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.Role;
+import org.springframework.core.task.TaskDecorator;
 import org.springframework.core.env.Environment;
 
 /**
@@ -45,6 +52,25 @@ public class TracepanelAutoConfiguration {
     @ConditionalOnClass(name = "org.springframework.web.client.RestClient")
     static RestClients tracepanelRestClients() {
         return new RestClients();
+    }
+
+    /** @Async, @Scheduled and runners' work, each a trace: Spring's infrastructure proxies apply it. */
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    static Advisor tracepanelBackground() {
+        return new StaticMethodMatcherPointcutAdvisor(new Background()) {
+            @Override
+            public boolean matches(Method method, Class<?> type) {
+                return Background.traced(method, type);
+            }
+        };
+    }
+
+    /** The executor @Async methods run on links each task to the trace that queued it; an app's own decorator wins. */
+    @Bean
+    @ConditionalOnMissingBean(TaskDecorator.class)
+    TaskDecorator tracepanelQueuing() {
+        return new Background.Queuing();
     }
 
     /** MongoDB commands, from the settings Spring Boot builds its MongoClient from. */

@@ -32,10 +32,15 @@ public final class Trace {
     private long dbMicros;
 
     Trace(String kind, String name, Map<String, Object> attrs) {
+        this(kind, kind, name, attrs);
+    }
+
+    /** `rootKind`: the root span's kind when it isn't the trace's (a task's is task.run). */
+    Trace(String kind, String rootKind, String name, Map<String, Object> attrs) {
         this.kind = kind;
         this.name = name;
         this.attrs.putAll(attrs);
-        this.root = span(kind, name, Map.of(), start);
+        this.root = span(rootKind, name, Map.of(), start);
     }
 
     public String id() {

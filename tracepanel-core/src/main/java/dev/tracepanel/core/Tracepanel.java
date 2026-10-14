@@ -9,6 +9,8 @@ import java.util.Map;
  */
 public final class Tracepanel {
     private static final ThreadLocal<Trace> CURRENT = new ThreadLocal<>();
+    // Which part of the project made a trace, unless its integration says: a task's is a worker, as in every SDK.
+    private static final Map<String, String> ROLES = Map.of("http", "web", "task", "worker");
     private static volatile Tracepanel instance;
 
     private final Config config;
@@ -61,8 +63,14 @@ public final class Tracepanel {
 
     /** A trace for the work this thread starts now; it is the current one until it finishes. */
     public Trace begin(String kind, String name, Map<String, Object> attrs) {
-        Trace trace = new Trace(kind, name, attrs);
+        return begin(kind, kind, name, attrs);
+    }
+
+    /** The same, with the root span's kind: a task's trace begins with its task.run. */
+    public Trace begin(String kind, String rootKind, String name, Map<String, Object> attrs) {
+        Trace trace = new Trace(kind, rootKind, name, attrs);
         trace.attr("service.name", config.service());
+        trace.attr("service.role", attrs.getOrDefault("service.role", ROLES.getOrDefault(kind, kind)));
         trace.attr("telemetry.sdk.language", language);
         if (languageVersion != null) trace.attr("tracepanel.language.version", languageVersion);
         trace.attr("process.runtime.name", System.getProperty("java.vm.name", "java"));

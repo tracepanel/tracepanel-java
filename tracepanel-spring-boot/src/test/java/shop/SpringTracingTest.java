@@ -161,4 +161,45 @@ class SpringTracingTest {
         assertThat(calledAttrs).containsEntry("w3c.parent_span_id", attrs.get("w3c.span_id"))
                 .containsEntry("w3c.trace_id", ((Map<String, Object>) caller.get("attrs")).get("w3c.trace_id"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void an_async_method_is_a_task_linked_to_the_request_that_queued_it() throws Exception {
+        get("/queue");
+        Map<String, Object> request = FakeAgent.traceAt("/queue");
+        Map<String, Object> task = FakeAgent.trace("Jobs.sendDigest");
+
+        List<Map<String, Object>> requestSpans = (List<Map<String, Object>>) request.get("spans");
+        Map<String, Object> queued = requestSpans.stream().filter(span -> "task.enqueue".equals(span.get("kind"))).findFirst().orElseThrow();
+        List<Map<String, Object>> taskSpans = (List<Map<String, Object>>) task.get("spans");
+
+        assertThat(queued).containsEntry("name", "Jobs.sendDigest");
+        assertThat(String.valueOf(((Map<String, Object>) queued.get("attrs")).get("code.origin"))).contains("Jobs.java");
+        assertThat(task).containsEntry("kind", "task");
+        assertThat(taskSpans.get(0)).containsEntry("kind", "task.run");
+        assertThat(taskSpans.stream().map(span -> span.get("kind")).toList()).contains("sql");
+        assertThat((Map<String, Object>) task.get("attrs")).containsEntry("task.name", "Jobs.sendDigest")
+                .containsEntry("task.trigger", "request")
+                .containsEntry("service.role", "web");
+        assertThat((List<Map<String, Object>>) task.get("links")).singleElement().satisfies(link -> assertThat(link)
+                .containsEntry("kind", "enqueued_by")
+                .containsEntry("trace_id", request.get("id"))
+                .containsEntry("span_id", queued.get("id")));
+        assertThat((List<Map<String, Object>>) task.get("logs")).singleElement()
+                .satisfies(log -> assertThat(log).containsEntry("message", "digest for ann@example.com"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_scheduled_method_and_a_runner_are_commands() throws Exception {
+        Map<String, Object> scheduled = FakeAgent.trace("Jobs.nightly");
+        Map<String, Object> runner = FakeAgent.trace("Jobs.run");
+
+        assertThat(scheduled).containsEntry("kind", "command");
+        assertThat((Map<String, Object>) scheduled.get("attrs")).containsEntry("command.schedule", "every 1 hours")
+                .containsEntry("command.trigger", "schedule")
+                .containsEntry("service.role", "command");
+        assertThat((Map<String, Object>) runner.get("attrs")).containsEntry("command.trigger", "startup");
+        assertThat((List<Map<String, Object>>) runner.get("spans")).anySatisfy(span -> assertThat(span).containsEntry("kind", "sql"));
+    }
 }
