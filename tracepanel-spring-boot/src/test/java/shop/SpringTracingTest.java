@@ -139,7 +139,7 @@ class SpringTracingTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"rest-client", "rest-template", "web-client"})
+    @ValueSource(strings = {"rest-client", "rest-template", "web-client", "jdk", "jdk-async", "rest-client-jdk"})
     @SuppressWarnings("unchecked")
     void a_call_to_an_http_api_is_a_span_and_the_app_it_reaches_links_its_trace_to_it(String client) throws Exception {
         books();
@@ -148,7 +148,9 @@ class SpringTracingTest {
         Map<String, Object> called = FakeAgent.traceAt("/shelves/" + client + "/books");
 
         List<Map<String, Object>> spans = (List<Map<String, Object>>) caller.get("spans");
-        Map<String, Object> call = spans.stream().filter(span -> "http.client".equals(span.get("kind"))).findFirst().orElseThrow();
+        List<Map<String, Object>> calls = spans.stream().filter(span -> "http.client".equals(span.get("kind"))).toList();
+        assertThat(calls).hasSize(1);
+        Map<String, Object> call = calls.get(0);
         Map<String, Object> attrs = (Map<String, Object>) call.get("attrs");
         Map<String, Object> calledAttrs = (Map<String, Object>) called.get("attrs");
 
@@ -157,7 +159,7 @@ class SpringTracingTest {
                 .containsEntry("http.response.status_code", 200)
                 .containsEntry("server.address", "127.0.0.1")
                 .containsEntry("server.port", port);
-        assertThat(String.valueOf(attrs.get("code.origin"))).matches("src/test/java/shop/RelayController\\.java:\\d+ in relay");
+        assertThat(String.valueOf(attrs.get("code.origin"))).matches("src/test/java/shop/RelayController\\.java:\\d+ in (relay|send)");
 
         assertThat(calledAttrs).containsEntry("w3c.parent_span_id", attrs.get("w3c.span_id"))
                 .containsEntry("w3c.trace_id", ((Map<String, Object>) caller.get("attrs")).get("w3c.trace_id"));

@@ -18,12 +18,21 @@ final class TracedRequests implements ClientHttpRequestInterceptor {
         // The app's own traceparent, if it set one, is the one that goes.
         if (request.getHeaders().getFirst(W3c.HEADER) == null) request.getHeaders().set(W3c.HEADER, call.traceparent());
         try {
-            ClientHttpResponse response = execution.execute(request, body);
+            ClientHttpResponse response = nested(() -> execution.execute(request, body));
             call.end(response.getStatusCode().value());
             return response;
         } catch (IOException | RuntimeException e) {
             call.failed(e);
             throw e;
+        }
+    }
+
+    private static ClientHttpResponse nested(HttpCalls.Sending<ClientHttpResponse, IOException> sending) throws IOException {
+        try {
+            return HttpCalls.nested(sending);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new java.io.InterruptedIOException(e.getMessage());
         }
     }
 }

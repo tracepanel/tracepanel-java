@@ -1,6 +1,7 @@
 package dev.tracepanel.core;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -12,12 +13,34 @@ import java.util.Map;
 public final class HttpCalls {
     private static final int ERROR_STATUS = 500;
 
+    // A call already being recorded on this thread: the client under the client (RestClient on the JDK's) isn't another.
+    private static final ThreadLocal<Boolean> IN_CALL = new ThreadLocal<>();
+
     private HttpCalls() {}
 
-    /** A call the app starts now, in the current trace; null outside one. */
+    /** The JDK's HttpClient, with each call the app makes through it recorded. */
+    public static HttpClient wrap(HttpClient client) {
+        return client instanceof TracedHttpClient ? client : new TracedHttpClient(client);
+    }
+
+    /** What a recorded call does to send itself: a client under it doesn't record it again. */
+    public interface Sending<T, E extends Exception> {
+        T send() throws E, InterruptedException;
+    }
+
+    public static <T, E extends Exception> T nested(Sending<T, E> sending) throws E, InterruptedException {
+        IN_CALL.set(Boolean.TRUE);
+        try {
+            return sending.send();
+        } finally {
+            IN_CALL.remove();
+        }
+    }
+
+    /** A call the app starts now, in the current trace; null outside one, or inside a call being recorded. */
     public static Call start(String method, URI url) {
         Trace trace = Tracepanel.current();
-        if (trace == null) return null;
+        if (trace == null || IN_CALL.get() != null) return null;
         Tracepanel tracepanel = Tracepanel.get();
         String origin = tracepanel == null ? null : tracepanel.stacks().origin();
         return new Call(trace, method.toUpperCase(java.util.Locale.ROOT), url, origin);

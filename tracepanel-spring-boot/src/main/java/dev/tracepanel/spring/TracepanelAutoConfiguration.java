@@ -90,6 +90,12 @@ public class TracepanelAutoConfiguration {
         return new RedisCommands.Factories();
     }
 
+    /** And the JDK's HttpClient beans. */
+    @Bean
+    static JdkHttpClients tracepanelJdkHttpClients() {
+        return new JdkHttpClients();
+    }
+
     /** And through WebClient, in a WebFlux app or beside Spring MVC. */
     @Bean
     @ConditionalOnClass(name = "org.springframework.web.reactive.function.client.WebClient")
