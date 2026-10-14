@@ -47,6 +47,21 @@ public class TracepanelAutoConfiguration {
         return new RestClients();
     }
 
+    /** MongoDB commands, from the settings Spring Boot builds its MongoClient from. */
+    @Bean
+    @ConditionalOnClass(name = "com.mongodb.MongoClientSettings")
+    static MongoCommands.Settings tracepanelMongo() {
+        return new MongoCommands.Settings();
+    }
+
+    /** Redis commands through Lettuce, from each of Spring Data Redis's connection factories. */
+    @Bean
+    @ConditionalOnClass(name = {"io.lettuce.core.event.command.CommandListener",
+            "org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory"})
+    static RedisCommands.Factories tracepanelRedis() {
+        return new RedisCommands.Factories();
+    }
+
     /** And through WebClient, in a WebFlux app or beside Spring MVC. */
     @Bean
     @ConditionalOnClass(name = "org.springframework.web.reactive.function.client.WebClient")

@@ -4,9 +4,6 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -15,7 +12,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -188,7 +184,7 @@ public final class Jdbc {
             attrs.put("db.fingerprint", Sql.fingerprint(text));
             List<String> values = params.stream().map(String::valueOf).toList();
             attrs.put("db.params", values);
-            attrs.put("db.params_hash", params.isEmpty() ? null : hash(Json.write(values)));
+            attrs.put("db.params_hash", params.isEmpty() ? null : Sql.hash(Json.write(values)));
             attrs.put("db.many", many);
             Tracepanel tracepanel = Tracepanel.get();
             attrs.put("code.origin", tracepanel == null ? null : tracepanel.stacks().origin());
@@ -217,15 +213,6 @@ public final class Jdbc {
             return method.invoke(target, args);
         } catch (InvocationTargetException e) {
             throw e.getCause();
-        }
-    }
-
-    static String hash(String text) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-1").digest(text.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest).substring(0, 12);
-        } catch (NoSuchAlgorithmException e) {
-            return null;
         }
     }
 }

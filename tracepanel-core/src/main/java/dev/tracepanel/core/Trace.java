@@ -209,7 +209,8 @@ public final class Trace {
         return top != null ? (String) top.get("id") : root == null ? null : (String) root.get("id");
     }
 
-    static long nowMicros() {
+    /** Now, in microseconds since the epoch, as every span's start. */
+    public static long nowMicros() {
         Instant now = Instant.now();
         return now.getEpochSecond() * 1_000_000L + now.getNano() / 1_000;
     }

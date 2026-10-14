@@ -9,12 +9,17 @@ dependencies {
     compileOnly("ch.qos.logback:logback-classic")
     compileOnly("org.springframework:spring-webflux")
     compileOnly("io.projectreactor:reactor-core")
+    compileOnly("org.mongodb:mongodb-driver-core")
+    compileOnly("io.lettuce:lettuce-core")
+    compileOnly("org.springframework.data:spring-data-redis")
 
     testImplementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc")
     testImplementation("org.springframework.boot:spring-boot-starter-jdbc")
     testImplementation("org.springframework.boot:spring-boot-starter-webclient")
     testImplementation("org.springframework.boot:spring-boot-starter-restclient")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-mongodb")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-redis")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("com.h2database:h2")
 }
@@ -33,6 +38,8 @@ testing {
                 implementation("org.springframework.boot:spring-boot-starter-web")
                 implementation("org.springframework.boot:spring-boot-starter-jdbc")
                 implementation("org.springframework.boot:spring-boot-starter-webflux")
+                implementation("org.springframework.boot:spring-boot-starter-data-mongodb")
+                implementation("org.springframework.boot:spring-boot-starter-data-redis")
                 implementation("org.springframework.boot:spring-boot-starter-test")
                 implementation("com.h2database:h2")
             }
@@ -47,6 +54,12 @@ tasks.withType<Test>().configureEach {
     // The tests' fake agent leaves its addresses here, where the SDK looks for the project's.
     environment("TRACEPANEL_DIR", layout.buildDirectory.dir("tracepanel-test/$name").get().asFile.absolutePath)
     environment("TRACEPANEL_AGENT", "auto")
+    // MongoDB and Redis for the tests that need them, when given (Spring Boot 3.5's and 4's property names).
+    System.getenv("TEST_MONGODB_URI")?.let {
+        environment("SPRING_DATA_MONGODB_URI", it)
+        environment("SPRING_MONGODB_URI", it)
+    }
+    System.getenv("TEST_REDIS_PORT")?.let { environment("SPRING_DATA_REDIS_PORT", it) }
 }
 
 tasks.check {

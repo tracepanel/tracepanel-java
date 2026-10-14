@@ -1,5 +1,9 @@
 package dev.tracepanel.core;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -33,5 +37,15 @@ public final class Sql {
                 : (trimmed.isEmpty() ? "SQL" : WHITESPACE.split(trimmed, 2)[0].toUpperCase(Locale.ROOT));
         Matcher table = TABLE.matcher(sql);
         return table.find() ? verb + " " + table.group(1) : verb;
+    }
+
+    /** A short hash of a statement's values: what tells duplicates (the same values) from repeats. */
+    public static String hash(String text) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-1").digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, 12);
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
     }
 }
