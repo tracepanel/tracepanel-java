@@ -203,4 +203,20 @@ class SpringTracingTest {
         assertThat((Map<String, Object>) runner.get("attrs")).containsEntry("command.trigger", "startup");
         assertThat((List<Map<String, Object>>) runner.get("spans")).anySatisfy(span -> assertThat(span).containsEntry("kind", "sql"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void an_async_request_ends_with_its_answer() throws Exception {
+        HttpResponse<String> response = get("/later");
+        Map<String, Object> trace = FakeAgent.traceAt("/later");
+
+        assertThat(response.body()).isEqualTo("later 42");
+        assertThat(response.headers().firstValue("Tracepanel-Id")).hasValue((String) trace.get("id"));
+        assertThat(trace).containsEntry("name", "GET /later");
+        assertThat(((Number) trace.get("duration")).longValue()).isGreaterThanOrEqualTo(50_000L);
+        assertThat((Map<String, Object>) trace.get("attrs")).containsEntry("http.status_code", 200);
+        assertThat((List<Map<String, Object>>) trace.get("spans"))
+                .anySatisfy(span -> assertThat(span).containsEntry("kind", "sql").containsEntry("name", "SELECT"));
+        assertThat(FakeAgent.TRACES.stream().filter(t -> "/later".equals(((Map<String, Object>) t.get("attrs")).get("http.path")))).hasSize(1);
+    }
 }

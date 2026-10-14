@@ -104,7 +104,8 @@ final class Background implements MethodInterceptor {
 
     /**
      * The executor's decorator: an @Async call queued in a trace is a task.enqueue span of it, named after the
-     * method (the proxy's frame on the queuing thread names it), and the task's run links back to it.
+     * method (the proxy's frame on the queuing thread names it), and the task's run links back to it. Other work a
+     * trace hands to the executor (an async request's Callable) runs in that trace.
      */
     static final class Queuing implements TaskDecorator {
         @Override
@@ -112,7 +113,19 @@ final class Background implements MethodInterceptor {
             Trace trace = Tracepanel.current();
             Tracepanel tracepanel = Tracepanel.get();
             if (trace == null || tracepanel == null) return runnable;
-            String name = asyncMethod().orElse("async task");
+            Optional<String> method = asyncMethod();
+            if (method.isEmpty()) {
+                // Not an @Async method: the request's own work on another thread (Spring MVC's Callable), in its trace.
+                return () -> {
+                    Trace before = Tracepanel.bind(trace);
+                    try {
+                        runnable.run();
+                    } finally {
+                        Tracepanel.bind(before);
+                    }
+                };
+            }
+            String name = method.get();
             Map<String, Object> attrs = new LinkedHashMap<>();
             attrs.put("task.system", "spring");
             attrs.put("task.name", name);

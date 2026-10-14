@@ -30,7 +30,7 @@ public class TracepanelWebAutoConfiguration {
         FilterRegistrationBean<TracepanelFilter> registration =
                 new FilterRegistrationBean<>(new TracepanelFilter(tracepanel, framework, runtime));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
-        registration.setDispatcherTypes(DispatcherType.REQUEST);
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC);
         registration.addUrlPatterns("/*");
         return registration;
     }

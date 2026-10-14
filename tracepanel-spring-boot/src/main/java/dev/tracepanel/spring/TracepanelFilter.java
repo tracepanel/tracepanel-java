@@ -4,6 +4,9 @@ import dev.tracepanel.core.Console;
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.Tracepanel;
 import dev.tracepanel.core.Widget;
+import jakarta.servlet.AsyncEvent;
+import jakarta.servlet.AsyncListener;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,6 +26,7 @@ import org.springframework.web.servlet.HandlerMapping;
  */
 final class TracepanelFilter extends OncePerRequestFilter {
     // W3C: a caller's trace, which the agent links this request to.
+    private static final String TRACE = TracepanelFilter.class.getName() + ".trace";
     private static final Pattern TRACEPARENT = Pattern.compile("^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$");
 
     private final Tracepanel tracepanel;
@@ -42,6 +46,10 @@ final class TracepanelFilter extends OncePerRequestFilter {
         String path = request.getRequestURI().substring(request.getContextPath().length());
         if (path.startsWith(prefix) || path.equals(prefix.substring(0, prefix.length() - 1))) {
             console(request, response, path.length() >= prefix.length() ? path.substring(prefix.length()) : "");
+            return;
+        }
+        if (request.getDispatcherType() == DispatcherType.ASYNC) {
+            async(request, response, chain);
             return;
         }
         String method = request.getMethod();
@@ -68,7 +76,53 @@ final class TracepanelFilter extends OncePerRequestFilter {
             trace.error(e, tracepanel.stacks(), false);
             throw e;
         } finally {
-            finish(trace, request, response, traced, origin, failure);
+            if (failure == null && request.isAsyncStarted()) {
+                later(trace, request, response, traced, origin);
+            } else {
+                finish(trace, request, response, traced, origin, failure);
+            }
+        }
+    }
+
+    /**
+     * The handler answers later (a suspend function, a Callable, a DeferredResult, a Mono): the trace ends with the
+     * response, and goes with the request to the thread that completes it. This one works for no trace meanwhile.
+     */
+    private void later(Trace trace, HttpServletRequest request, HttpServletResponse response, TracedResponse traced, String origin) {
+        request.setAttribute(TRACE, trace);
+        traced.passThrough();
+        Tracepanel.bind(null);
+        request.getAsyncContext().addListener(new AsyncListener() {
+            @Override
+            public void onComplete(AsyncEvent event) throws IOException {
+                finish(trace, request, response, traced, origin, null);
+            }
+
+            @Override
+            public void onError(AsyncEvent event) {
+                if (event.getThrowable() != null) trace.error(event.getThrowable(), tracepanel.stacks(), false);
+            }
+
+            @Override
+            public void onTimeout(AsyncEvent event) {
+                trace.attr("http.timeout", true);
+            }
+
+            @Override
+            public void onStartAsync(AsyncEvent event) {
+                event.getAsyncContext().addListener(this);
+            }
+        });
+    }
+
+    /** The dispatch that writes an async request's answer, in its trace: the errors and views it records are its. */
+    private void async(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        Trace previous = Tracepanel.bind(request.getAttribute(TRACE) instanceof Trace trace ? trace : null);
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            Tracepanel.bind(previous);
         }
     }
 
@@ -96,6 +150,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
             headers(trace, request, response, origin);
         }
         tracepanel.finish(trace);
+        if (Tracepanel.current() == trace) Tracepanel.bind(null);
     }
 
     private void headers(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {
@@ -127,7 +182,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {
-        return true;
+        return false;
     }
 
     static String text(byte[] bytes) {

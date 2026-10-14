@@ -68,6 +68,22 @@ public final class Tracepanel {
         return CURRENT.get();
     }
 
+    /**
+     * Makes `trace` this thread's (null: none) and returns the one it had: work that moves between threads (an async
+     * request's dispatches, a coroutine's resumes) takes its trace along, and gives the thread back as it was.
+     */
+    public static Trace bind(Trace trace) {
+        Trace before = CURRENT.get();
+        if (trace == null) CURRENT.remove();
+        else CURRENT.set(trace);
+        return before;
+    }
+
+    /** Where the current trace lives, for a coroutine context element that restores it on each resume. */
+    public static ThreadLocal<Trace> holder() {
+        return CURRENT;
+    }
+
     /** A trace for the work this thread starts now; it is the current one until it finishes. */
     public Trace begin(String kind, String name, Map<String, Object> attrs) {
         return begin(kind, kind, name, attrs);
