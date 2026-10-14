@@ -34,8 +34,8 @@ against the checksum it was built with, and keeps it in
 another one, and without a network the SDK runs `tracepanel-agent` from the
 `PATH`.
 
-Spring Boot 3.5 and 4 with Spring MVC, on Java 17 or later. WebFlux and
-Kotlin coroutines come next.
+Spring Boot 3.5 and 4 with Spring MVC, on Java 17 or later, in Java or in
+Kotlin. WebFlux comes next.
 
 ## What it records
 
@@ -46,11 +46,20 @@ Kotlin coroutines come next.
   returned and the line of your code that ran it, and each transaction.
 - Logback records made during a request, with the line that logged them.
 - Errors a handler throws, with your frames and the source around them.
-- Calls to HTTP APIs through `RestClient`, `RestTemplate` and `WebClient`,
-  each with a `traceparent`, so the app it reaches links its trace to the
-  call.
+- Calls to HTTP APIs through `RestClient`, `RestTemplate`, `WebClient` and
+  the JDK's `HttpClient` (a bean, or one you wrap with
+  `HttpCalls.wrap(client)`), each with a `traceparent`, so the app it
+  reaches links its trace to the call.
 - Redis commands through Lettuce (Spring Data Redis, the cache) and MongoDB
   commands (Spring Data MongoDB), with their N+1 and duplicates.
+- Kafka and RabbitMQ messages a `KafkaTemplate` or a `RabbitTemplate`
+  sends, with their N+1. Each message a `@KafkaListener` or
+  `@RabbitListener` receives is a trace of its own, delivered from the one
+  that sent it.
+- A handler that answers later (a Kotlin suspend function, a `Callable`, a
+  `DeferredResult`) is one trace until its answer. A suspend function's
+  queries are in it on whichever thread they run: `Dispatchers.IO`, after
+  a `delay`, in `async` blocks.
 - Work besides requests: an `@Async` method's run is a task, linked to the
   request that queued it; an `@Scheduled` method's run and a
   `CommandLineRunner`'s are jobs.
@@ -83,9 +92,10 @@ The same environment variables as the other Tracepanel SDKs:
 ./gradlew check
 ```
 
-It runs the tests on Spring Boot 4 and on 3.5. The MongoDB and Redis tests
-need a server of each: `TEST_MONGODB_URI=mongodb://127.0.0.1:27017/test`
-and `TEST_REDIS_PORT=6379`. After changing `agentVersion` in
+It runs the tests on Spring Boot 4 and on 3.5. The tests of MongoDB,
+Redis, Kafka and RabbitMQ need a server of each:
+`TEST_MONGODB_URI=mongodb://127.0.0.1:27017/test`, `TEST_REDIS_PORT=6379`,
+`TEST_KAFKA_BOOTSTRAP=localhost:9092` and `TEST_RABBITMQ_PORT=5672`. After changing `agentVersion` in
 `gradle.properties`, `./gradlew agentIntegrity` writes the checksums of
 that version's downloads.
 
