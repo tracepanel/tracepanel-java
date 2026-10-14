@@ -1,8 +1,12 @@
 package dev.tracepanel.spring;
 
 import dev.tracepanel.core.Tracepanel;
+import java.lang.reflect.Method;
 import jakarta.servlet.DispatcherType;
+import org.springframework.aop.Advisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcutAdvisor;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.boot.SpringBootVersion;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -10,6 +14,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Role;
 import org.springframework.core.Ordered;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -50,4 +55,17 @@ public class TracepanelWebAutoConfiguration {
         return new ErrorRecorder(tracepanel);
     }
 
+
+    /** A Kotlin controller's suspend functions keep their request's trace across threads. */
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    @ConditionalOnClass(name = "kotlinx.coroutines.ThreadContextElementKt")
+    static Advisor tracepanelCoroutines() {
+        return new StaticMethodMatcherPointcutAdvisor(new Coroutines()) {
+            @Override
+            public boolean matches(Method method, Class<?> type) {
+                return Coroutines.traced(method, type);
+            }
+        };
+    }
 }

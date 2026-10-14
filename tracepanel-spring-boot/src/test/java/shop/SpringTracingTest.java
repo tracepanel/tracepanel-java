@@ -1,6 +1,7 @@
 package shop;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -218,5 +219,20 @@ class SpringTracingTest {
         assertThat((List<Map<String, Object>>) trace.get("spans"))
                 .anySatisfy(span -> assertThat(span).containsEntry("kind", "sql").containsEntry("name", "SELECT"));
         assertThat(FakeAgent.TRACES.stream().filter(t -> "/later".equals(((Map<String, Object>) t.get("attrs")).get("http.path")))).hasSize(1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_suspend_function_keeps_its_trace_on_the_threads_it_resumes_on() throws Exception {
+        assumeTrue(SpringBootVersion.getVersion().startsWith("4."), "the Kotlin app runs on Spring Boot 4's suite");
+        HttpResponse<String> response = get("/coroutine");
+        Map<String, Object> trace = FakeAgent.traceAt("/coroutine");
+        List<Map<String, Object>> sql = ((List<Map<String, Object>>) trace.get("spans")).stream()
+                .filter(span -> "sql".equals(span.get("kind"))).toList();
+
+        assertThat(response.body()).isEqualTo("sum 3");
+        assertThat(trace).containsEntry("name", "GET /coroutine");
+        assertThat(sql).extracting(span -> ((Map<String, Object>) span.get("attrs")).get("db.statement"))
+                .containsExactly("SELECT 1 AS io", "SELECT 2 AS resumed");
     }
 }
