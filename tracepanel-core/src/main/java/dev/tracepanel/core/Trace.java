@@ -187,7 +187,8 @@ public final class Trace {
     public synchronized Map<String, Object> finish() {
         duration = nowMicros() - start;
         root.put("duration", duration);
-        for (Map<String, Object> span : open) span.putIfAbsent("duration", nowMicros() - (long) span.get("start"));
+        // A span still open (its work ended without saying so) lasts until the trace's end.
+        for (Map<String, Object> span : open) span.put("duration", nowMicros() - (long) span.get("start"));
         for (Map<String, Object> error : errors) error.remove("_object");
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put("id", id);

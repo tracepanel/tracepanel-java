@@ -78,4 +78,13 @@ class CoreTest {
         assertEquals(null, AgentDownload.platform("FreeBSD", "amd64", false));
         assertEquals(null, AgentDownload.platform("Linux", "s390x", true));
     }
+
+    @Test
+    void the_widgets_attributes_read_the_same_in_any_encoding() {
+        String page = Widget.decorate("<html><head></head></html>", new Trace("http", "GET /", java.util.Map.of()), "GET", 200,
+                "/__tracepanel__/", "Java 21 \u00b7 Spring Boot 4.1");
+
+        assertTrue(page.contains("data-tracepanel-runtime=\"Java 21 &#183; Spring Boot 4.1\""), page);
+        assertTrue(page.chars().allMatch(c -> c < 128), page);
+    }
 }

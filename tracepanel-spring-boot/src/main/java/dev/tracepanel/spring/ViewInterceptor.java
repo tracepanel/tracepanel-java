@@ -8,13 +8,18 @@ import java.util.Map;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-/** The handler that served the request, as a view span (com.shop.BookController.list) and the trace's code.view. */
+/**
+ * The handler that served the request, as a view span (com.shop.BookController.list) and the trace's code.view. An
+ * async handler's span lasts until its answer is written: what it does on other threads meanwhile goes under it.
+ */
 final class ViewInterceptor implements HandlerInterceptor {
     private static final String SPAN = ViewInterceptor.class.getName() + ".span";
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         Trace trace = Tracepanel.current();
+        // An async request's dispatch that writes the answer: the handler's span from the first one goes on.
+        if (request.getAttribute(SPAN) != null) return true;
         if (trace != null && handler instanceof HandlerMethod method) {
             String name = method.getBeanType().getName() + "." + method.getMethod().getName();
             trace.attr("code.view", name);

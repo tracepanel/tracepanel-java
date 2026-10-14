@@ -49,9 +49,26 @@ public final class Widget {
         return html.substring(0, head.end()) + tag + html.substring(head.end());
     }
 
+    /**
+     * An attribute of the widget's tag, escaped, its characters outside ASCII as character references: the page's
+     * encoding may not be UTF-8 (a page served as text/html with no charset is written as ISO-8859-1), and the
+     * runtime's "Java 21 · Spring Boot 4.1" must read the same in any.
+     */
     private static String attr(String name, String value) {
         if (value == null) return "";
-        return " data-tracepanel-" + name + "=\"" + value.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;") + "\"";
+        StringBuilder out = new StringBuilder(" data-tracepanel-").append(name).append("=\"");
+        value.codePoints().forEach(c -> {
+            switch (c) {
+                case '&' -> out.append("&amp;");
+                case '"' -> out.append("&quot;");
+                case '<' -> out.append("&lt;");
+                default -> {
+                    if (c < 128) out.append((char) c);
+                    else out.append("&#").append(c).append(';');
+                }
+            }
+        });
+        return out.append('"').toString();
     }
 
     private static String format(double millis) {

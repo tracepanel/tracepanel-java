@@ -236,6 +236,12 @@ class SpringTracingTest {
         assertThat(trace).containsEntry("name", "GET /coroutine");
         assertThat(sql).extracting(span -> ((Map<String, Object>) span.get("attrs")).get("db.statement"))
                 .containsExactly("SELECT 1 AS io", "SELECT 2 AS resumed");
+        List<Map<String, Object>> views = ((List<Map<String, Object>>) trace.get("spans")).stream()
+                .filter(span -> "view".equals(span.get("kind"))).toList();
+        assertThat(views).singleElement().satisfies(view -> {
+            assertThat(((Number) view.get("duration")).longValue()).isGreaterThan(0);
+            assertThat(sql).allSatisfy(query -> assertThat(query).containsEntry("parent_id", view.get("id")));
+        });
     }
 
     @Test
