@@ -10,6 +10,8 @@ plugins {
     `java-test-fixtures`
 }
 
+description = "Tracepanel's recorder for the JVM: traces a request's SQL, logs, errors and calls, and sends them to Tracepanel's agent."
+
 dependencies {
     testFixturesImplementation("com.jayway.jsonpath:json-path:2.9.0")
     compileOnly(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
@@ -47,5 +49,14 @@ tasks.register("agentIntegrity") {
         }
         out.parentFile.mkdirs()
         out.writeText(lines.joinToString("\n", postfix = "\n"))
+    }
+}
+
+// The tests' fake agent stays out of the published library: its jar, and the sources jar the publishing plugin adds
+// once the project is evaluated.
+afterEvaluate {
+    val java = components["java"] as AdhocComponentWithVariants
+    for (name in listOf("testFixturesApiElements", "testFixturesRuntimeElements", "testFixturesSourcesElements")) {
+        configurations.findByName(name)?.let { java.withVariantsFromConfiguration(it) { skip() } }
     }
 }

@@ -6,6 +6,8 @@ plugins {
     kotlin("jvm")
 }
 
+description = "Tracepanel for Ktor: each call's SQL, logs, errors and outgoing calls, its N+1 queries, a badge on its pages and a console at /__tracepanel__/."
+
 val ktor = "3.6.0"
 
 dependencies {

@@ -1,0 +1,49 @@
+name: CI
+
+# The build and every test: on Spring Boot 4 and 3.5, and Ktor, with a MongoDB, a Redis, a Kafka and a RabbitMQ to
+# record calls to. Then the libraries as they would go to Maven Central, unsigned, into the local repository.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mongodb:
+        image: mongo:9
+        ports: ["27017:27017"]
+      redis:
+        image: redis:8
+        ports: ["6379:6379"]
+      kafka:
+        image: apache/kafka:4.3.1
+        ports: ["9092:9092"]
+      rabbitmq:
+        image: rabbitmq:4
+        ports: ["5672:5672"]
+    env:
+      TEST_MONGODB_URI: mongodb://127.0.0.1:27017/test
+      TEST_REDIS_PORT: "6379"
+      TEST_KAFKA_BOOTSTRAP: localhost:9092
+      TEST_RABBITMQ_PORT: "5672"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          # The toolchain the build asks for: it compiles for Java 17 and runs the tests.
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew check --console=plain
+      - run: ./gradlew publishToMavenLocal --console=plain

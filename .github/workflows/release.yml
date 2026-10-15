@@ -1,0 +1,68 @@
+name: Release
+
+# A tag that names a version (0.3.0, as in build.gradle.kts) publishes it to Maven Central. Nothing else does. It goes
+# out once CI has passed on the tagged commit (the run main's push made), signed, through the Central Portal: the
+# secrets MAVEN_CENTRAL_USERNAME and MAVEN_CENTRAL_PASSWORD (a Central Portal user token for the dev.tracepanel
+# namespace), SIGNING_KEY (an armored private key, its public half on a key server) and SIGNING_KEY_PASSWORD, in
+# the environment maven-central.
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI passed on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 120); do
+            result=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push" \
+              --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"')
+            case "$result" in
+              "completed success") echo "CI passed on $GITHUB_SHA" && exit 0 ;;
+              completed*) echo "::error::CI on $GITHUB_SHA: $result" && exit 1 ;;
+              "null null") [ "$attempt" -ge 10 ] && echo "::error::no CI run of main on $GITHUB_SHA" && exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::CI on $GITHUB_SHA still runs" && exit 1
+
+  publish:
+    name: Publish to Maven Central
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: maven-central
+      url: https://central.sonatype.com/namespace/dev.tracepanel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: The tag is the version, and the agent's
+        run: |
+          version=$(sed -n 's/^    version = "\(.*\)"$/\1/p' build.gradle.kts)
+          agent=$(sed -n 's/^agentVersion=//p' gradle.properties)
+          if [ "$version" != "$GITHUB_REF_NAME" ] || [ "$agent" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, version $version, agent $agent: they must agree"
+            exit 1
+          fi
+      # Uploaded, validated by the Central Portal and released: a version can't be published twice, nor removed.
+      - name: Publish
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --console=plain

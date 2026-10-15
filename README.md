@@ -16,7 +16,7 @@ out:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    developmentOnly("dev.tracepanel:tracepanel-spring-boot:0.2.0")
+    developmentOnly("dev.tracepanel:tracepanel-spring-boot:0.3.0")
 }
 ```
 
@@ -42,7 +42,7 @@ Kotlin. WebFlux comes next.
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tracepanel:tracepanel-ktor:0.2.0")
+    implementation("dev.tracepanel:tracepanel-ktor:0.3.0")
 }
 ```
 

@@ -6,6 +6,8 @@ plugins {
     kotlin("plugin.spring")
 }
 
+description = "Tracepanel for Spring Boot: each request's SQL, logs, errors and calls, its N+1 queries, a badge on its pages and a console at /__tracepanel__/."
+
 // Spring Boot's own libraries are the app's: compiled against, never brought along.
 dependencies {
     api(project(":tracepanel-core"))

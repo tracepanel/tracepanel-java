@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-15)
 
-The first release, 0.2.0, with the agent of the same version.
+The first release, with `tracepanel-agent` 0.3.0, which the SDK downloads
+the first time.
 
 ### Added
 
@@ -34,3 +35,10 @@ The first release, 0.2.0, with the agent of the same version.
   its coroutines' work on any thread, its errors, its logs and the widget
   on its pages; `TracepanelClient` records the client's calls, and
   `Jdbc.dataSource(ds)` a DataSource's SQL. On in Ktor's development mode.
+- `EXPLAIN` of a recorded query from the console, run by the app on its own
+  database connection, in the agent's own console too.
+- A trace keeps at most 2,000 spans and 1,000 log records, as the agent
+  stores it, and counts the rest.
+- A failed request's answer carries its trace's headers, an async one keeps
+  its route, and a framework's wrapper of an error already recorded isn't
+  recorded again.

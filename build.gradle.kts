@@ -4,15 +4,18 @@ plugins {
     // The Kotlin modules' and tests' compiler, declared once for the build.
     kotlin("jvm") version "2.3.21" apply false
     kotlin("plugin.spring") version "2.3.21" apply false
+    // Maven Central: the Central Portal's upload, the POM it requires and the signatures.
+    id("com.vanniktech.maven.publish") version "0.37.0" apply false
 }
 
 allprojects {
     group = "dev.tracepanel"
-    version = "0.2.0"
+    version = "0.3.0"
 }
 
 subprojects {
     apply(plugin = "java-library")
+    apply(plugin = "com.vanniktech.maven.publish")
 
     repositories {
         mavenCentral()
@@ -22,7 +25,6 @@ subprojects {
         toolchain {
             languageVersion = JavaLanguageVersion.of(21)
         }
-        withSourcesJar()
     }
 
     tasks.withType<JavaCompile>().configureEach {
@@ -40,5 +42,45 @@ subprojects {
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
+    }
+
+    // A doc comment here explains the code to its reader, not an API reference: javadoc doesn't lint it.
+    tasks.withType<Javadoc>().configureEach {
+        (options as StandardJavadocDocletOptions).addBooleanOption("Xdoclint:none", true)
+    }
+
+    // On Maven Central, signed. The release workflow passes the Central Portal's token and the key as
+    // ORG_GRADLE_PROJECT_mavenCentralUsername, _mavenCentralPassword, _signingInMemoryKey and
+    // _signingInMemoryKeyPassword. Without the key (a local publishToMavenLocal), nothing is signed.
+    extensions.configure<com.vanniktech.maven.publish.MavenPublishBaseExtension> {
+        publishToMavenCentral(automaticRelease = true)
+        if (providers.gradleProperty("signingInMemoryKey").isPresent) {
+            signAllPublications()
+        }
+        pom {
+            name = project.name
+            description = provider { project.description }
+            inceptionYear = "2026"
+            url = "https://tracepanel.dev"
+            licenses {
+                license {
+                    name = "MIT License"
+                    url = "https://opensource.org/license/mit"
+                    distribution = "repo"
+                }
+            }
+            developers {
+                developer {
+                    id = "antonrh"
+                    name = "Anton Ruhlov"
+                    url = "https://github.com/antonrh"
+                }
+            }
+            scm {
+                url = "https://github.com/tracepanel/tracepanel-java"
+                connection = "scm:git:https://github.com/tracepanel/tracepanel-java.git"
+                developerConnection = "scm:git:ssh://git@github.com/tracepanel/tracepanel-java.git"
+            }
+        }
     }
 }
