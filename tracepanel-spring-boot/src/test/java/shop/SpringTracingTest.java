@@ -130,12 +130,16 @@ class SpringTracingTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void an_async_handler_that_fails_keeps_its_route_not_the_error_page_s() throws Exception {
         HttpResponse<String> response = get("/later/boom/7");
         Map<String, Object> trace = FakeAgent.traceAt("/later/boom/7");
 
         assertThat(response.statusCode()).isEqualTo(500);
         assertThat(trace).containsEntry("name", "GET /later/boom/{shelf}").containsEntry("status", "error");
+        // Spring's ServletException around it is no error of its own.
+        assertThat((List<Map<String, Object>>) trace.get("errors")).singleElement()
+                .satisfies(error -> assertThat(error).containsEntry("type", "java.lang.IllegalStateException"));
         assertThat(response.headers().firstValue("Tracepanel-Url")).hasValueSatisfying(url -> assertThat(url).endsWith("/t/" + trace.get("id")));
     }
 

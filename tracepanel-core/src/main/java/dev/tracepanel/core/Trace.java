@@ -145,7 +145,7 @@ public final class Trace {
     /** An exception, once: the same one seen again (rethrown up the stack) isn't another error. */
     public synchronized void error(Throwable error, Stacks stacks, boolean handled) {
         if (finished) return;
-        for (Map<String, Object> seen : errors) if (seen.get("_object") == error) return;
+        if (recorded(error)) return;
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("span_id", current());
         record.put("time", nowMicros());
@@ -165,6 +165,19 @@ public final class Trace {
         record.put("chain", chain);
         record.put("_object", error);
         errors.add(record);
+    }
+
+    /**
+     * Whether this error, or one it wraps, is recorded already: a framework's wrapper (Spring's ServletException
+     * "Request processing failed") says nothing the error it wraps didn't.
+     */
+    private boolean recorded(Throwable error) {
+        int depth = 0;
+        for (Throwable cause = error; cause != null && depth++ < 10; cause = cause.getCause()) {
+            for (Map<String, Object> seen : errors) if (seen.get("_object") == cause) return true;
+            if (cause.getCause() == cause) break;
+        }
+        return false;
     }
 
     /** Marks the errors recorded so far as handled or not: an exception the app answered with a 4xx was handled. */
