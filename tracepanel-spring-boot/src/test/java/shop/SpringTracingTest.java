@@ -75,7 +75,7 @@ class SpringTracingTest {
         assertThat(sql.get(1).get("name")).isEqualTo("SELECT author");
         assertThat(lookup).containsEntry("db.fingerprint", "SELECT name FROM author WHERE id = ?")
                 .containsEntry("db.system", "h2")
-                .containsEntry("db.params", List.of("1"));
+                .containsEntry("db.params", List.of(1));
         assertThat(String.valueOf(lookup.get("code.origin"))).matches("src/test/java/shop/BookController\\.java:\\d+ in books");
 
         List<Map<String, Object>> logs = (List<Map<String, Object>>) trace.get("logs");
@@ -117,6 +117,24 @@ class SpringTracingTest {
                 .containsEntry("handled", false);
         assertThat(app).containsEntry("filename", "src/test/java/shop/BookController.java").containsEntry("function", "boom");
         assertThat((List<String>) app.get("context")).anyMatch(line -> line.contains("the shelf is on fire"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void the_console_explains_a_recorded_query_on_the_app_s_database() throws Exception {
+        books();
+        get("/shelves/fiction/books");
+        Map<String, Object> trace = FakeAgent.traceAt("/shelves/fiction/books");
+        Map<String, Object> lookup = ((List<Map<String, Object>>) trace.get("spans")).stream()
+                .filter(span -> "SELECT author".equals(span.get("name"))).findFirst().orElseThrow();
+
+        HttpResponse<String> plan = get("/__tracepanel__/api/explain?trace=" + trace.get("id") + "&span=" + lookup.get("id"));
+        HttpResponse<String> missing = get("/__tracepanel__/api/explain?trace=" + trace.get("id") + "&span=nope");
+
+        assertThat(plan.statusCode()).isEqualTo(200);
+        assertThat(plan.body()).contains("\"vendor\":\"h2\"", "\"alias\":\"default\"", "\"analyzed\":false")
+                .containsIgnoringCase("author");
+        assertThat(missing.statusCode()).isEqualTo(404);
     }
 
     @Test

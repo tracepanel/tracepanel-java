@@ -51,8 +51,13 @@ public final class FakeAgent {
             String call = exchange.getRequestMethod() + " " + exchange.getRequestURI() + " "
                     + new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             CONSOLE_CALLS.add(call.trim());
-            byte[] body = ("console " + exchange.getRequestURI()).getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "text/plain");
+            // A stored trace, as the agent's API gives it (the app's EXPLAIN reads its statement there).
+            String path = exchange.getRequestURI().getPath();
+            Map<String, Object> stored = path.startsWith("/api/traces/") ? TRACES.stream()
+                    .filter(trace -> path.substring("/api/traces/".length()).equals(trace.get("id"))).findFirst().orElse(null) : null;
+            byte[] body = (stored != null ? dev.tracepanel.core.Json.write(stored) : "console " + exchange.getRequestURI())
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", stored != null ? "application/json" : "text/plain");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(body);

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * SQL through JDBC, whatever runs it (JPA, Hibernate, Spring Data, jOOQ, JdbcTemplate): each statement a span of the
@@ -26,6 +27,8 @@ import java.util.Set;
 public final class Jdbc {
     private static final Set<String> EXECUTE = Set.of("execute", "executeQuery", "executeUpdate", "executeLargeUpdate");
     private static final Set<String> BATCH = Set.of("executeBatch", "executeLargeBatch");
+    /** The app's databases by alias, unrecorded: what EXPLAIN runs on (Explain), outside every trace. */
+    private static final Map<String, javax.sql.DataSource> DATABASES = new ConcurrentHashMap<>();
 
     private Jdbc() {}
 
@@ -35,8 +38,18 @@ public final class Jdbc {
      */
     public static javax.sql.DataSource dataSource(javax.sql.DataSource dataSource, String alias) {
         if (Proxy.isProxyClass(dataSource.getClass()) && Proxy.getInvocationHandler(dataSource) instanceof DataSources) return dataSource;
+        register(dataSource, alias);
         return (javax.sql.DataSource) Proxy.newProxyInstance(Jdbc.class.getClassLoader(),
                 new Class<?>[] {javax.sql.DataSource.class}, new DataSources(dataSource, alias));
+    }
+
+    /** A database the app's queries run on, by the alias they are recorded with: the console can EXPLAIN them. */
+    public static void register(javax.sql.DataSource dataSource, String alias) {
+        DATABASES.put(alias, dataSource);
+    }
+
+    static javax.sql.DataSource database(String alias) {
+        return DATABASES.get(alias);
     }
 
     private record DataSources(javax.sql.DataSource target, String alias) implements InvocationHandler {
@@ -200,7 +213,8 @@ public final class Jdbc {
             Map<String, Object> attrs = database.attrs();
             attrs.put("db.statement", Sql.statement(text));
             attrs.put("db.fingerprint", Sql.fingerprint(text));
-            List<String> values = params.stream().map(String::valueOf).toList();
+            // Numbers and booleans as they are, everything else as its text: EXPLAIN binds them back by type.
+            List<Object> values = params.stream().map(Jdbc::scalar).toList();
             attrs.put("db.params", values);
             attrs.put("db.params_hash", params.isEmpty() ? null : Sql.hash(Json.write(values)));
             attrs.put("db.many", many);
@@ -232,5 +246,9 @@ public final class Jdbc {
         } catch (InvocationTargetException e) {
             throw e.getCause();
         }
+    }
+
+    private static Object scalar(Object value) {
+        return value == null || value instanceof Number || value instanceof Boolean ? value : String.valueOf(value);
     }
 }

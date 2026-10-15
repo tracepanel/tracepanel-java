@@ -18,6 +18,8 @@ final class DataSources implements BeanPostProcessor {
         ProxyFactory factory = new ProxyFactory(bean);
         factory.setProxyTargetClass(true);
         String alias = name.equals("dataSource") ? "default" : name;
+        // The bean itself, unrecorded: the console's EXPLAIN runs there.
+        Jdbc.register((DataSource) bean, alias);
         factory.addAdvice((MethodInterceptor) invocation -> {
             Object result = invocation.proceed();
             return result instanceof Connection connection && invocation.getMethod().getName().equals("getConnection")
