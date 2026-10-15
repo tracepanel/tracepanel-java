@@ -13,7 +13,9 @@ import java.util.Map;
  * the next), and it goes to the agent as the document every SDK sends, once it ends.
  */
 public final class Trace {
-    private static final int MAX_SPANS = 5000;
+    /** The most spans and log records a trace is sent with, as the agent stores it; the rest are counted. */
+    static final int MAX_SPANS = 2000;
+    static final int MAX_LOGS = 1000;
 
     private final String id = Ulid.next();
     private final String kind;
@@ -139,7 +141,8 @@ public final class Trace {
         log.put("message", message);
         log.put("exception", exception);
         log.put("attrs", attrs);
-        logs.add(log);
+        if (logs.size() < MAX_LOGS) logs.add(log);
+        else dropped("tracepanel.dropped_logs");
     }
 
     /** An exception, once: the same one seen again (rethrown up the stack) isn't another error. */
@@ -239,8 +242,15 @@ public final class Trace {
         span.put("duration", 0L);
         span.put("status", "ok");
         span.put("attrs", new LinkedHashMap<>(attrs));
-        if (!finished && spans.size() < MAX_SPANS) spans.add(span);
+        // Spans are added as they start: past the limit, every later one goes, its children with it.
+        if (finished) return span;
+        if (spans.size() < MAX_SPANS) spans.add(span);
+        else dropped("tracepanel.dropped_spans");
         return span;
+    }
+
+    private void dropped(String key) {
+        attrs.merge(key, 1L, (count, one) -> ((Number) count).longValue() + 1);
     }
 
     private String current() {

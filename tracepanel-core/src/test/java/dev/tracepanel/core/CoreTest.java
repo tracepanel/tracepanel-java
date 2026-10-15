@@ -21,6 +21,23 @@ class CoreTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void a_trace_keeps_its_first_spans_and_records_and_counts_the_rest() {
+        Trace trace = new Trace("http", "GET /", Map.of());
+        for (int n = 0; n < Trace.MAX_SPANS + 10; n++) trace.end(trace.begin("function", "step " + n, Map.of()), false);
+        for (int n = 0; n < Trace.MAX_LOGS + 5; n++) trace.log("info", "shop", "line " + n, null, Map.of());
+
+        Map<String, Object> doc = trace.finish();
+        Map<String, Object> attrs = (Map<String, Object>) doc.get("attrs");
+
+        assertEquals(Trace.MAX_SPANS, ((List<?>) doc.get("spans")).size());
+        assertEquals(Trace.MAX_LOGS, ((List<?>) doc.get("logs")).size());
+        // The root is the first span: it stays, and the cut takes the latest ones.
+        assertEquals(11L, attrs.get("tracepanel.dropped_spans"));
+        assertEquals(5L, attrs.get("tracepanel.dropped_logs"));
+    }
+
+    @Test
     void json_escapes_what_a_string_holds() {
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put("message", "a \"quote\"\nand a tab\t\u0001");
