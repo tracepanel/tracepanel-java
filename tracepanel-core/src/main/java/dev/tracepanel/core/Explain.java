@@ -31,6 +31,14 @@ final class Explain {
     /** A plan's line: how deep in the plan, its text, and a warning when it reads a whole table. */
     record Line(int depth, String text, String warning) {}
 
+    /** What the app adds to its agent's console: EXPLAIN once it has a database; no switching users (Django's). */
+    static Console.Answer capabilities() {
+        Map<String, Object> capabilities = new LinkedHashMap<>();
+        capabilities.put("explain", Jdbc.hasDatabases());
+        capabilities.put("users", false);
+        return json(200, capabilities);
+    }
+
     static Console.Answer answer(Tracepanel tracepanel, String query) {
         Map<String, String> params = query(query);
         Map<String, Object> span = span(tracepanel, params.getOrDefault("trace", ""), params.getOrDefault("span", ""));

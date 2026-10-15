@@ -37,9 +37,12 @@ public final class Console {
      * elsewhere is refused; so is one over MAX_BODY (`body` null: too large to read).
      */
     public static Answer forward(Tracepanel tracepanel, String method, String path, String contentType, byte[] body, String from) {
-        // EXPLAIN runs on the app's database: the app answers it, not the agent.
+        // EXPLAIN runs on the app's database: the app answers it, and what it can do, not the agent.
         if (method.equals("GET") && (path.equals("api/explain") || path.startsWith("api/explain?"))) {
             return Explain.answer(tracepanel, path.substring(path.indexOf('?') + 1));
+        }
+        if (method.equals("GET") && (path.equals("api/capabilities") || path.startsWith("api/capabilities?"))) {
+            return Explain.capabilities();
         }
         if (!method.equals("GET") && !method.equals("HEAD")) {
             if (!local(from)) return Answer.text(403, "The Tracepanel console takes writes from this machine only.");

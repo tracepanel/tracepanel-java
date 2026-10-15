@@ -48,6 +48,10 @@ public final class Jdbc {
         DATABASES.put(alias, dataSource);
     }
 
+    static boolean hasDatabases() {
+        return !DATABASES.isEmpty();
+    }
+
     static javax.sql.DataSource database(String alias) {
         return DATABASES.get(alias);
     }

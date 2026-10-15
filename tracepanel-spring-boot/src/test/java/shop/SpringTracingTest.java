@@ -135,6 +135,7 @@ class SpringTracingTest {
         assertThat(plan.body()).contains("\"vendor\":\"h2\"", "\"alias\":\"default\"", "\"analyzed\":false")
                 .containsIgnoringCase("author");
         assertThat(missing.statusCode()).isEqualTo(404);
+        assertThat(get("/__tracepanel__/api/capabilities").body()).isEqualTo("{\"explain\":true,\"users\":false}");
     }
 
     @Test
