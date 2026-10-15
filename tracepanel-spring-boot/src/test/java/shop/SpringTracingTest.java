@@ -120,6 +120,26 @@ class SpringTracingTest {
     }
 
     @Test
+    void a_failed_request_s_answer_from_the_error_page_has_its_trace_s_headers() throws Exception {
+        HttpResponse<String> response = get("/boom");
+        String id = response.headers().firstValue("Tracepanel-Id").orElseThrow();
+
+        assertThat(response.statusCode()).isEqualTo(500);
+        assertThat(response.headers().firstValue("Tracepanel-Url")).hasValueSatisfying(url -> assertThat(url).endsWith("/t/" + id));
+        assertThat(response.headers().firstValue("Server-Timing")).isPresent();
+    }
+
+    @Test
+    void an_async_handler_that_fails_keeps_its_route_not_the_error_page_s() throws Exception {
+        HttpResponse<String> response = get("/later/boom/7");
+        Map<String, Object> trace = FakeAgent.traceAt("/later/boom/7");
+
+        assertThat(response.statusCode()).isEqualTo(500);
+        assertThat(trace).containsEntry("name", "GET /later/boom/{shelf}").containsEntry("status", "error");
+        assertThat(response.headers().firstValue("Tracepanel-Url")).hasValueSatisfying(url -> assertThat(url).endsWith("/t/" + trace.get("id")));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void a_caller_s_traceparent_links_the_request_to_its_trace() throws Exception {
         books();

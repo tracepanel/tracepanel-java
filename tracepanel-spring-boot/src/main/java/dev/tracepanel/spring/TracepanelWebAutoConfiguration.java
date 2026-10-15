@@ -35,7 +35,8 @@ public class TracepanelWebAutoConfiguration {
         FilterRegistrationBean<TracepanelFilter> registration =
                 new FilterRegistrationBean<>(new TracepanelFilter(tracepanel, framework, runtime));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
-        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC);
+        // The error page's dispatch too: a failed request's answer gets its trace's headers there.
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
         registration.addUrlPatterns("/*");
         return registration;
     }

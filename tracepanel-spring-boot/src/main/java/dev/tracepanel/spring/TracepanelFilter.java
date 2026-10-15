@@ -30,6 +30,8 @@ final class TracepanelFilter extends OncePerRequestFilter {
     // W3C: a caller's trace, which the agent links this request to.
     private static final String TRACE = TracepanelFilter.class.getName() + ".trace";
     private static final String ORIGIN = TracepanelFilter.class.getName() + ".origin";
+    /** The route of the handler that served the request: the error page's dispatch makes Spring's own /error. */
+    static final String ROUTE = TracepanelFilter.class.getName() + ".route";
     private static final Pattern TRACEPARENT = Pattern.compile("^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$");
 
     private final Tracepanel tracepanel;
@@ -55,6 +57,10 @@ final class TracepanelFilter extends OncePerRequestFilter {
             async(request, response, chain);
             return;
         }
+        if (request.getDispatcherType() == DispatcherType.ERROR) {
+            errorPage(request, response, chain);
+            return;
+        }
         String method = request.getMethod();
         Map<String, Object> attrs = new LinkedHashMap<>();
         attrs.put("http.method", method);
@@ -68,6 +74,8 @@ final class TracepanelFilter extends OncePerRequestFilter {
         }
         Trace trace = tracepanel.begin("http", method + " " + path, attrs);
         String origin = request.getScheme() + "://" + request.getHeader("Host");
+        request.setAttribute(TRACE, trace);
+        request.setAttribute(ORIGIN, origin);
         TracedResponse traced = new TracedResponse(response, () -> headers(trace, request, response, origin));
         // The ids now, so a fetch() caller can open a streamed answer too; the timing once it is known.
         response.setHeader("Tracepanel-Id", trace.id());
@@ -93,8 +101,6 @@ final class TracepanelFilter extends OncePerRequestFilter {
      * trace meanwhile.
      */
     private void later(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {
-        request.setAttribute(TRACE, trace);
-        request.setAttribute(ORIGIN, origin);
         Tracepanel.bind(null);
         request.getAsyncContext().addListener(new AsyncListener() {
             @Override
@@ -146,6 +152,18 @@ final class TracepanelFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * The error page's dispatch, after the request failed: the answer it writes is the failed request's, with its
+     * trace's headers (the app's own sendError took them no more), so a fetch() caller can open it too.
+     */
+    private void errorPage(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        if (request.getAttribute(TRACE) instanceof Trace trace) {
+            headers(trace, request, response, String.valueOf(request.getAttribute(ORIGIN)));
+        }
+        chain.doFilter(request, response);
+    }
+
     private void finish(Trace trace, HttpServletRequest request, HttpServletResponse response, TracedResponse traced,
             String origin, Throwable failure) throws IOException {
         outcome(trace, request, response, failure);
@@ -164,7 +182,8 @@ final class TracepanelFilter extends OncePerRequestFilter {
 
     /** The trace's route, status and errors, once the request has its answer. */
     private static void outcome(Trace trace, HttpServletRequest request, HttpServletResponse response, Throwable failure) {
-        Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        Object served = request.getAttribute(ROUTE);
+        Object route = served != null ? served : request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         if (route instanceof String pattern && !pattern.isEmpty()) {
             trace.attr("http.route", pattern);
             trace.name(request.getMethod() + " " + pattern);
@@ -222,6 +241,11 @@ final class TracepanelFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
+    @Override
+    protected boolean shouldNotFilterErrorDispatch() {
         return false;
     }
 

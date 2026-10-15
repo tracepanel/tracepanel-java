@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * The handler that served the request, as a view span (com.shop.BookController.list) and the trace's code.view. An
@@ -23,6 +24,8 @@ final class ViewInterceptor implements HandlerInterceptor {
         if (trace != null && handler instanceof HandlerMethod method) {
             String name = method.getBeanType().getName() + "." + method.getMethod().getName();
             trace.attr("code.view", name);
+            Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+            if (route != null) request.setAttribute(TracepanelFilter.ROUTE, route);
             request.setAttribute(SPAN, trace.begin("view", name, Map.of("code.function", name)));
         }
         return true;

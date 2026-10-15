@@ -20,6 +20,13 @@ public class AsyncController {
         return () -> "<!doctype html><html><head><title>Later</title></head><body>later</body></html>";
     }
 
+    @GetMapping("/later/boom/{shelf}")
+    public Callable<String> laterBoom() {
+        return () -> {
+            throw new IllegalStateException("the shelf is on fire, later");
+        };
+    }
+
     @GetMapping("/later")
     public Callable<String> later() {
         return () -> {
