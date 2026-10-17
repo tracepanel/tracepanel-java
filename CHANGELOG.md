@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Ktor: an exception StatusPages answers with a 4xx (404, 409, 422) is no
+  longer an error, and the trace has the status the call answered with.
+  An exception is an error when the call answers 5xx or nothing handles
+  it.
 - Spring Boot: work a bean behind a proxy (`@Transactional`, `@Cacheable`,
   `@Validated`) hands to the application's task executor runs in the
   request's trace, with its SQL and its HTTP calls. Only an `@Async`

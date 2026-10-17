@@ -12,6 +12,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.install
 import io.ktor.server.html.respondHtml
 import io.ktor.server.plugins.NotFoundException
+import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -33,6 +34,11 @@ import org.junit.jupiter.api.Test
 import org.slf4j.LoggerFactory
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+
+/** The app's own exceptions, which StatusPages answers. */
+class OutOfStock(message: String) : RuntimeException(message)
+
+class PriceMissing(message: String) : RuntimeException(message)
 
 /** A Ktor app with the plugin: what the agent gets, and what the page and a caller see. */
 class KtorTracingTest {
@@ -60,6 +66,10 @@ class KtorTracingTest {
         val appClient = createClient { install(TracepanelClient) }
         application {
             install(Tracepanel) { packages = listOf("shop") }
+            install(StatusPages) {
+                exception<OutOfStock> { call, cause -> call.respondText(cause.message ?: "", status = HttpStatusCode.Conflict) }
+                exception<PriceMissing> { call, _ -> call.respondText("sorry", status = HttpStatusCode.InternalServerError) }
+            }
             routing {
                 get("/books/{id}") {
                     val id = call.parameters["id"]!!.toInt()
@@ -80,6 +90,8 @@ class KtorTracingTest {
                 }
                 get("/missing") { throw NotFoundException("no such book") }
                 get("/boom") { error("the shelf is on fire") }
+                get("/sold-out") { throw OutOfStock("only 2 left") }
+                get("/no-price") { throw PriceMissing("no price for book 3") }
                 get("/relay") { call.respondText(appClient.get("/books/2").bodyAsText()) }
             }
         }
@@ -136,6 +148,23 @@ class KtorTracingTest {
         @Suppress("UNCHECKED_CAST")
         val errors = boom["errors"] as List<Map<String, Any>>
         assertEquals(listOf("java.lang.IllegalStateException"), errors.map { it["type"] })
+    }
+
+    @Test
+    fun an_exception_status_pages_answers_with_a_4xx_is_not_an_error_and_one_it_answers_with_a_5xx_is() = app {
+        assertEquals(HttpStatusCode.Conflict, client.get("/sold-out").status)
+        assertEquals(HttpStatusCode.InternalServerError, client.get("/no-price").status)
+        val soldOut = FakeAgent.traceAt("/sold-out")
+        val noPrice = FakeAgent.traceAt("/no-price")
+
+        assertEquals("ok", soldOut["status"])
+        assertEquals(409, attrs(soldOut)["http.status_code"])
+        assertEquals(emptyList<Any>(), soldOut["errors"])
+
+        assertEquals("error", noPrice["status"])
+        @Suppress("UNCHECKED_CAST")
+        val errors = noPrice["errors"] as List<Map<String, Any>>
+        assertEquals(listOf(listOf("shop.PriceMissing", "no price for book 3", false)), errors.map { listOf(it["type"], it["message"], it["handled"]) })
     }
 
     @Test

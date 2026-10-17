@@ -18,7 +18,6 @@ import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.Hook
 import io.ktor.server.application.createApplicationPlugin
-import io.ktor.server.application.hooks.CallFailed
 import io.ktor.server.application.hooks.ResponseBodyReadyForSend
 import io.ktor.server.request.contentType
 import io.ktor.server.request.httpMethod
@@ -27,6 +26,7 @@ import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.RoutingRoot
 import io.ktor.util.AttributeKey
+import io.ktor.util.pipeline.PipelinePhase
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.readRemaining
@@ -49,11 +49,33 @@ class TracepanelConfig {
 
 private val TRACE = AttributeKey<Trace>("tracepanel.trace")
 private val ROUTE = AttributeKey<String>("tracepanel.route")
+private val FAILURE = AttributeKey<Throwable>("tracepanel.failure")
 
-/** The whole call, from before the routing to the response sent: the handler runs inside what this wraps it in. */
+/**
+ * The whole call, from before the routing to the response sent, and around the plugins that answer an exception
+ * (StatusPages): the handler runs inside what this wraps it in, and the status is the one the call answered with.
+ */
 private object AroundCall : Hook<suspend (ApplicationCall, suspend () -> Unit) -> Unit> {
+    private val phase = PipelinePhase("Tracepanel")
+
     override fun install(pipeline: ApplicationCallPipeline, handler: suspend (ApplicationCall, suspend () -> Unit) -> Unit) {
-        pipeline.intercept(ApplicationCallPipeline.Setup) { handler(call) { proceed() } }
+        // Before every phase there is now: a plugin's that catches exceptions (CallFailed's) is inserted later, inside.
+        pipeline.insertPhaseBefore(pipeline.items.first(), phase)
+        pipeline.intercept(phase) { handler(call) { proceed() } }
+    }
+}
+
+/** An exception the call's handler threw, inside the plugins that may answer it: whether it is an error, its status says. */
+private object Thrown : Hook<suspend (ApplicationCall, Throwable) -> Unit> {
+    override fun install(pipeline: ApplicationCallPipeline, handler: suspend (ApplicationCall, Throwable) -> Unit) {
+        pipeline.intercept(ApplicationCallPipeline.Setup) {
+            try {
+                proceed()
+            } catch (cause: Throwable) {
+                handler(call, cause)
+                throw cause
+            }
+        }
     }
 }
 
@@ -107,26 +129,27 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
             withContext(Core.holder().asContextElement(trace)) { proceed() }
         } catch (error: Throwable) {
             failure = error
-            if (!isResponse(error)) trace.error(error, tracepanel.stacks(), false)
             throw error
         } finally {
             call.attributes.getOrNull(ROUTE)?.let {
                 trace.attr("http.route", it)
                 trace.name("$method $it")
             }
-            // An exception leaves before Ktor answers it: the status it will answer with.
+            // An exception that leaves the call goes before Ktor answers it: the status it will answer with.
             val status = call.response.status()?.value ?: failure?.let(::answeredWith) ?: 200
             trace.attr("http.status_code", status)
+            // The handler's exception is an error when the call failed with it: one a plugin answered with a 4xx
+            // (StatusPages' 404, 409, 422) is the answer, as Ktor's own NotFoundException is.
+            val thrown = failure ?: call.attributes.getOrNull(FAILURE)
+            if (thrown != null && status >= 500) trace.error(thrown, tracepanel.stacks(), false)
             if (status >= 500) trace.failed()
             if (trace.hasErrors()) trace.errorsHandled(status < 500)
             tracepanel.finish(trace)
         }
     }
 
-    // An exception a plugin answered (StatusPages): the trace keeps it, unless it is the 4xx answer itself.
-    on(CallFailed) { call, cause ->
-        val trace = call.attributes.getOrNull(TRACE)
-        if (trace != null && !isResponse(cause)) trace.error(cause, tracepanel.stacks(), false)
+    on(Thrown) { call, cause ->
+        if (!call.attributes.contains(FAILURE)) call.attributes.put(FAILURE, cause)
     }
 
     // The trace's headers on every answer, and on a page the widget, with the status and time it went out with.
@@ -191,9 +214,6 @@ private suspend fun console(tracepanel: Core, call: ApplicationCall, path: Strin
         HttpStatusCode.fromValue(answer.status()),
     )
 }
-
-/** Ktor's exceptions that are the answer, below 500 (NotFoundException, BadRequestException): not errors. */
-private fun isResponse(error: Throwable): Boolean = answeredWith(error) < 500
 
 /** The status Ktor answers an exception with: 404, 400 or 415 for its own HTTP exceptions, else 500. */
 private fun answeredWith(error: Throwable): Int {
