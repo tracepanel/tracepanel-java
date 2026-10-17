@@ -235,6 +235,15 @@ class SpringTracingTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void the_signed_in_user_of_a_request_answered_later_is_named() throws Exception {
+        assertThat(get("/account/later").body()).isEqualTo("later");
+        Map<String, Object> attrs = (Map<String, Object>) FakeAgent.traceAt("/account/later").get("attrs");
+
+        assertThat(attrs).containsEntry("user.id", "ann");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void an_async_method_is_a_task_linked_to_the_request_that_queued_it() throws Exception {
         get("/queue");
         Map<String, Object> request = FakeAgent.traceAt("/queue");

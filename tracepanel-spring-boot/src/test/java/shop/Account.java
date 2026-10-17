@@ -22,6 +22,12 @@ public class Account {
         return SecurityContextHolder.getContext().getAuthentication().getName();
     }
 
+    /** Answered later, on the async dispatch, where Spring Security's context is the request's no more. */
+    @GetMapping("/account/later")
+    public java.util.concurrent.Callable<String> later() {
+        return () -> "later";
+    }
+
     @GetMapping("/account/named")
     public String named() {
         Tracepanel.setUser("7", "bob");
@@ -34,7 +40,7 @@ public class Account {
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
                 throws ServletException, IOException {
-            if (!request.getRequestURI().equals("/account/signed-in")) {
+            if (!request.getRequestURI().equals("/account/signed-in") && !request.getRequestURI().equals("/account/later")) {
                 chain.doFilter(request, response);
                 return;
             }
