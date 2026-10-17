@@ -211,6 +211,18 @@ class SpringTracingTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void work_a_proxied_bean_hands_to_the_executor_is_the_request_s_not_a_task() throws Exception {
+        books();
+        assertThat(get("/quote").statusCode()).isEqualTo(200);
+        Map<String, Object> request = FakeAgent.traceAt("/quote");
+
+        List<Map<String, Object>> spans = (List<Map<String, Object>>) request.get("spans");
+
+        assertThat(spans.stream().map(span -> span.get("kind")).toList()).contains("http.client").doesNotContain("task.enqueue");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void an_async_method_is_a_task_linked_to_the_request_that_queued_it() throws Exception {
         get("/queue");
         Map<String, Object> request = FakeAgent.traceAt("/queue");

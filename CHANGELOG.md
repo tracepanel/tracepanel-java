@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Spring Boot: work a bean behind a proxy (`@Transactional`, `@Cacheable`,
+  `@Validated`) hands to the application's task executor runs in the
+  request's trace, with its SQL and its HTTP calls. Only an `@Async`
+  method's call, which Spring's async interceptor submits, is a task of
+  its own.
 - A frame of a Kotlin inline function, whose line is past the end of its
   file, no longer fails the recording of its error. The frame goes without
   its source, and recording an error never throws in the app's place: the

@@ -105,7 +105,7 @@ final class Background implements MethodInterceptor {
     /**
      * The executor's decorator: an @Async call queued in a trace is a task.enqueue span of it, named after the
      * method (the proxy's frame on the queuing thread names it), and the task's run links back to it. Other work a
-     * trace hands to the executor (an async request's Callable) runs in that trace.
+     * trace hands to the executor (an async request's Callable, a CompletableFuture's step) runs in that trace.
      */
     static final class Queuing implements TaskDecorator {
         @Override
@@ -142,15 +142,33 @@ final class Background implements MethodInterceptor {
             };
         }
 
-        /** The @Async method being queued: the generated proxy's frame on this thread, Class.method. */
+        /**
+         * The @Async method being queued, as Class.method: Spring's AsyncExecutionInterceptor submits it, on this
+         * thread, called through the bean's proxy. Without that interceptor on the stack, the work isn't an @Async
+         * method's, whatever proxies (@Transactional, @Cacheable) the code that hands it over runs through.
+         */
         private static Optional<String> asyncMethod() {
-            return StackWalker.getInstance().walk(frames -> frames
-                    .filter(frame -> frame.getClassName().contains("$$SpringCGLIB$$"))
-                    .findFirst()
-                    .map(frame -> {
-                        String type = frame.getClassName().substring(0, frame.getClassName().indexOf("$$"));
-                        return type.substring(type.lastIndexOf('.') + 1) + "." + frame.getMethodName();
-                    }));
+            return StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).walk(frames -> {
+                boolean submitted = false;
+                for (StackWalker.StackFrame frame : (Iterable<StackWalker.StackFrame>) frames::iterator) {
+                    if (!submitted) {
+                        submitted = ASYNC_INTERCEPTOR.equals(frame.getClassName()) && frame.getMethodName().equals("invoke");
+                        continue;
+                    }
+                    Class<?> proxy = frame.getDeclaringClass();
+                    if (proxy.getName().contains("$$SpringCGLIB$$")) {
+                        return Optional.of(proxy.getSuperclass().getSimpleName() + "." + frame.getMethodName());
+                    }
+                    if (java.lang.reflect.Proxy.isProxyClass(proxy)) {
+                        Class<?>[] interfaces = proxy.getInterfaces();
+                        String type = interfaces.length > 0 ? interfaces[0].getSimpleName() : proxy.getSimpleName();
+                        return Optional.of(type + "." + frame.getMethodName());
+                    }
+                }
+                return submitted ? Optional.of("async") : Optional.empty();
+            });
         }
+
+        private static final String ASYNC_INTERCEPTOR = "org.springframework.aop.interceptor.AsyncExecutionInterceptor";
     }
 }
