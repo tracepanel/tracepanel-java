@@ -150,4 +150,24 @@ class CoreTest {
         out.values().removeIf(java.util.Objects::isNull);
         return out;
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_call_s_span_names_its_port_when_it_isn_t_the_scheme_s() {
+        Trace trace = new Trace("http", "GET /", Map.of());
+        Trace before = Tracepanel.bind(trace);
+        try {
+            for (String url : List.of("http://127.0.0.1:8001/rates", "http://api.example.com:80/rates", "https://api.example.com/rates",
+                    "https://api.example.com:8443/rates")) {
+                HttpCalls.start("get", java.net.URI.create(url)).end(200);
+            }
+        } finally {
+            Tracepanel.bind(before);
+        }
+
+        List<Map<String, Object>> spans = (List<Map<String, Object>>) trace.finish().get("spans");
+
+        assertEquals(List.of("GET 127.0.0.1:8001/rates", "GET api.example.com/rates", "GET api.example.com/rates",
+                "GET api.example.com:8443/rates"), spans.stream().skip(1).map(span -> span.get("name")).toList());
+    }
 }

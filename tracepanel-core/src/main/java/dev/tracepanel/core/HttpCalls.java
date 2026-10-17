@@ -6,7 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Calls the app makes to HTTP APIs: each an http.client span of the current trace (GET api.example.com/users/1),
+ * Calls the app makes to HTTP APIs: each an http.client span of the current trace (GET api.example.com/users/1, with
+ * the port when it isn't the scheme's),
  * with its URL, status and the app's line that made it. A framework's client integration starts a call where the
  * app makes it, puts its traceparent on the request, and ends it with the answer.
  */
@@ -84,14 +85,18 @@ public final class HttpCalls {
             attrs.put("url.full", url.toString());
             attrs.put("url.scheme", scheme);
             attrs.put("server.address", url.getHost());
-            attrs.put("server.port", url.getPort() > 0 ? url.getPort() : scheme.equals("https") ? 443 : 80);
+            int defaultPort = scheme.equals("https") ? 443 : 80;
+            int port = url.getPort() > 0 ? url.getPort() : defaultPort;
+            attrs.put("server.port", port);
             attrs.put("w3c.span_id", W3c.spanId(spanId));
             if (status != null) attrs.put("http.response.status_code", status);
             if (error != null) attrs.put("error.type", error);
             attrs.put("code.origin", origin);
             boolean failed = error != null || (status != null && status >= ERROR_STATUS);
             String path = url.getRawPath() == null || url.getRawPath().isEmpty() ? "/" : url.getRawPath();
-            trace.done("http.client", method + " " + url.getHost() + path, attrs, start, failed, spanId);
+            // The port when it isn't the scheme's: two services on one host are two names (GET 127.0.0.1:8001/rates).
+            String host = port == defaultPort ? url.getHost() : url.getHost() + ":" + port;
+            trace.done("http.client", method + " " + host + path, attrs, start, failed, spanId);
         }
     }
 }

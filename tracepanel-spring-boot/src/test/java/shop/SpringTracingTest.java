@@ -198,7 +198,7 @@ class SpringTracingTest {
         Map<String, Object> attrs = (Map<String, Object>) call.get("attrs");
         Map<String, Object> calledAttrs = (Map<String, Object>) called.get("attrs");
 
-        assertThat(call).containsEntry("name", "GET 127.0.0.1/shelves/" + client + "/books").containsEntry("status", "ok");
+        assertThat(call).containsEntry("name", "GET 127.0.0.1:" + port + "/shelves/" + client + "/books").containsEntry("status", "ok");
         assertThat(attrs).containsEntry("http.request.method", "GET")
                 .containsEntry("http.response.status_code", 200)
                 .containsEntry("server.address", "127.0.0.1")

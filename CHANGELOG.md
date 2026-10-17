@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- An HTTP call's span names the port when it isn't the scheme's default
+  (`GET 127.0.0.1:8001/rates`), as the Go SDK does, so calls to two
+  services on one host don't read as one.
 - Ktor: an exception StatusPages answers with a 4xx (404, 409, 422) is no
   longer an error, and the trace has the status the call answered with.
   An exception is an error when the call answers 5xx or nothing handles
