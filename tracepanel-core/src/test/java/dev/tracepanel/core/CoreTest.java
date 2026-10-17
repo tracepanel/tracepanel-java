@@ -118,4 +118,36 @@ class CoreTest {
         assertEquals(1, ((java.util.List<?>) doc.get("spans")).size());
         assertEquals(null, ((java.util.Map<?, ?>) doc.get("attrs")).get("late"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_frame_past_the_end_of_its_file_has_no_source_and_the_error_is_recorded(@org.junit.jupiter.api.io.TempDir Path root)
+            throws java.io.IOException {
+        Path source = root.resolve("src/main/kotlin/com/shop/Prices.kt");
+        java.nio.file.Files.createDirectories(source.getParent());
+        java.nio.file.Files.writeString(source, "package com.shop\n\nfun price() = 1\n");
+        // A Kotlin inline function's frame: a line number past the file's end, where the inlined body is mapped.
+        IllegalStateException error = new IllegalStateException("no price");
+        error.setStackTrace(new StackTraceElement[] {
+                new StackTraceElement("com.shop.PricesKt", "price", "Prices.kt", 233),
+                new StackTraceElement("com.shop.PricesKt", "main", "Prices.kt", 3),
+        });
+        Trace trace = new Trace("http", "GET /", Map.of());
+
+        trace.error(error, new Stacks(root, List.of("com.shop")), false);
+        Map<String, Object> recorded = ((List<Map<String, Object>>) trace.finish().get("errors")).get(0);
+        List<Map<String, Object>> frames = (List<Map<String, Object>>) recorded.get("frames");
+
+        assertEquals("no price", recorded.get("message"));
+        assertEquals(Map.of("filename", "src/main/kotlin/com/shop/Prices.kt", "module", "com.shop.PricesKt", "function", "price",
+                "lineno", 233, "in_app", true, "context", List.of()), withoutNulls(frames.get(1)));
+        assertEquals(null, frames.get(1).get("context_start"));
+        assertEquals(List.of("package com.shop", "", "fun price() = 1"), frames.get(0).get("context"));
+    }
+
+    private static Map<String, Object> withoutNulls(Map<String, Object> frame) {
+        Map<String, Object> out = new LinkedHashMap<>(frame);
+        out.values().removeIf(java.util.Objects::isNull);
+        return out;
+    }
 }

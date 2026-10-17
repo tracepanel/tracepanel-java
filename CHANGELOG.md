@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A frame of a Kotlin inline function, whose line is past the end of its
+  file, no longer fails the recording of its error. The frame goes without
+  its source, and recording an error never throws in the app's place: the
+  app's own error is the one its caller sees.
+
 ## 0.3.0 (2026-10-15)
 
 The first release, with `tracepanel-agent` 0.3.0, which the SDK downloads

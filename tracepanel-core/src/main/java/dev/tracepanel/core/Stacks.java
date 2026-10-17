@@ -100,7 +100,8 @@ public final class Stacks {
         frame.put("in_app", app);
         List<String> context = file.map(found -> lines(found)).orElse(List.of());
         int line = element.getLineNumber();
-        if (context.isEmpty() || line <= 0) {
+        // A Kotlin inline function's body is mapped to lines past the end of the file that calls it: no source there.
+        if (context.isEmpty() || line <= 0 || line > context.size()) {
             frame.put("context_start", null);
             frame.put("context", List.of());
         } else {

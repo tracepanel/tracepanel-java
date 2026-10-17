@@ -155,19 +155,31 @@ public final class Trace {
         record.put("type", error.getClass().getName());
         record.put("message", String.valueOf(error.getMessage()));
         record.put("handled", handled);
-        record.put("frames", stacks.frames(error));
+        record.put("frames", frames(error, stacks));
         List<Map<String, Object>> chain = new ArrayList<>();
         for (Throwable cause = error.getCause(); cause != null && cause != error && chain.size() < 10; cause = cause.getCause()) {
             Map<String, Object> link = new LinkedHashMap<>();
             link.put("relation", "cause");
             link.put("type", cause.getClass().getName());
             link.put("message", String.valueOf(cause.getMessage()));
-            link.put("frames", stacks.frames(cause));
+            link.put("frames", frames(cause, stacks));
             chain.add(link);
         }
         record.put("chain", chain);
         record.put("_object", error);
         errors.add(record);
+    }
+
+    /**
+     * An error's frames, or none when reading them failed: recording an error never throws in the app's place, which
+     * would answer with Tracepanel's exception and lose the app's.
+     */
+    private static List<Map<String, Object>> frames(Throwable error, Stacks stacks) {
+        try {
+            return stacks.frames(error);
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     /**
