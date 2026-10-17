@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- The signed-in user on each trace, as `user.id` and `user.username`, as
+  the Python SDK names them. Spring Boot reads the principal from Spring
+  Security when the app has it. `Tracepanel.setUser(id, username)` names
+  the user from any code, and `call.tracepanelUser(id, username)` in Ktor.
+  The username stays on this machine.
+
 ### Fixed
 
 - An HTTP call's span names the port when it isn't the scheme's default

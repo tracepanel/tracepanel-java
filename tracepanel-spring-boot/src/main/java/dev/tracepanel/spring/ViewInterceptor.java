@@ -11,7 +11,8 @@ import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * The handler that served the request, as a view span (com.shop.BookController.list) and the trace's code.view. An
- * async handler's span lasts until its answer is written: what it does on other threads meanwhile goes under it.
+ * async handler's span lasts until its answer is written: what it does on other threads meanwhile goes under it. Once
+ * it ran, the signed-in user from Spring Security.
  */
 final class ViewInterceptor implements HandlerInterceptor {
     private static final String SPAN = ViewInterceptor.class.getName() + ".span";
@@ -34,6 +35,8 @@ final class ViewInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception failure) {
         Trace trace = Tracepanel.current();
+        // Inside Spring Security's filters still: the request's user is in its context.
+        if (trace != null && SecurityUsers.PRESENT) SecurityUsers.record(trace);
         if (trace != null && request.getAttribute(SPAN) instanceof Map<?, ?> span) {
             @SuppressWarnings("unchecked")
             Map<String, Object> view = (Map<String, Object>) span;

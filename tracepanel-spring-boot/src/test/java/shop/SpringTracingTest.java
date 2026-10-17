@@ -223,6 +223,18 @@ class SpringTracingTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void the_signed_in_user_is_named_from_spring_security_or_by_the_app() throws Exception {
+        assertThat(get("/account/signed-in").body()).isEqualTo("ann");
+        assertThat(get("/account/named").body()).isEqualTo("bob");
+        Map<String, Object> signedIn = (Map<String, Object>) FakeAgent.traceAt("/account/signed-in").get("attrs");
+        Map<String, Object> named = (Map<String, Object>) FakeAgent.traceAt("/account/named").get("attrs");
+
+        assertThat(signedIn).containsEntry("user.id", "ann").containsEntry("user.username", "ann");
+        assertThat(named).containsEntry("user.id", "7").containsEntry("user.username", "bob");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void an_async_method_is_a_task_linked_to_the_request_that_queued_it() throws Exception {
         get("/queue");
         Map<String, Object> request = FakeAgent.traceAt("/queue");

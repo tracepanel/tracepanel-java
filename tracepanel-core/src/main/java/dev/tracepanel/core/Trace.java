@@ -65,6 +65,16 @@ public final class Trace {
         return attrs.get(key);
     }
 
+    /**
+     * The signed-in user, as the Python SDK names them: their id (user.id) and their username (user.username, left out
+     * when null or empty), which stays on this machine.
+     */
+    public synchronized void user(String id, String username) {
+        if (finished) return;
+        attrs.put("user.id", id);
+        if (username != null && !username.isEmpty()) attrs.put("user.username", username);
+    }
+
     public synchronized void failed() {
         if (finished) return;
         status = "error";

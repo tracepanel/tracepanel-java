@@ -59,7 +59,8 @@ carry it to every thread they run on, so the queries of a suspended
 transaction on `Dispatchers.IO` are in it. `Jdbc.dataSource` records a
 DataSource's SQL (Ktor has no DI to find it by), and `TracepanelClient`
 the client's calls. An HTML page gets the badge, however it was written,
-and the console answers at `/__tracepanel__/`.
+and the console answers at `/__tracepanel__/`. Name the signed-in user with
+`call.tracepanelUser(id, username)`.
 
 Tracepanel is on in Ktor's development mode (`-Dio.ktor.development=true`,
 or `ktor.development` in the config), or with `TRACEPANEL_ENABLED=1`. The
@@ -91,6 +92,9 @@ dependency goes into the production build, where it stays off.
 - Work besides requests: an `@Async` method's run is a task, linked to the
   request that queued it; an `@Scheduled` method's run and a
   `CommandLineRunner`'s are jobs.
+- The signed-in user: the principal's name from Spring Security, when the
+  app has it, or the user your code names with
+  `Tracepanel.setUser(id, username)`. The username stays on your machine.
 - The caller's trace, when a request carries a W3C `traceparent`.
 
 Every response carries `Tracepanel-Id` and `Server-Timing`; an HTML page gets

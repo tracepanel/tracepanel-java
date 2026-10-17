@@ -26,6 +26,7 @@ dependencies {
     compileOnly("org.springframework.amqp:spring-rabbit")
     compileOnly("org.jetbrains.kotlin:kotlin-stdlib")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core")
+    compileOnly("org.springframework.security:spring-security-core")
 
     testImplementation(testFixtures(project(":tracepanel-core")))
     testImplementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
@@ -39,6 +40,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-amqp")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("com.h2database:h2")
+    testImplementation("org.springframework.security:spring-security-core")
     testImplementation("org.jetbrains.kotlin:kotlin-stdlib")
     testImplementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
@@ -71,6 +73,7 @@ testing {
                 implementation("org.springframework.boot:spring-boot-starter-amqp")
                 implementation("org.springframework.boot:spring-boot-starter-test")
                 implementation("com.h2database:h2")
+                implementation("org.springframework.security:spring-security-core")
             }
             targets.all {
                 testTask.configure { shouldRunAfter(tasks.test) }

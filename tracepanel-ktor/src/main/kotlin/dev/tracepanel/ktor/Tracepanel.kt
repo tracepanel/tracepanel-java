@@ -177,6 +177,16 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
     }
 }
 
+/**
+ * Names the signed-in user on the call's trace, as the app's authentication knows them: their id and their username
+ * (null for none), which stays on this machine. Without Tracepanel on, it does nothing.
+ *
+ *     call.tracepanelUser(user.id.toString(), user.email)
+ */
+fun ApplicationCall.tracepanelUser(id: String, username: String?) {
+    attributes.getOrNull(TRACE)?.user(id, username)
+}
+
 /** A page written as it is made (kotlinx.html's respondHtml): held whole, then written with the widget. */
 private class Decorated(
     private val page: OutgoingContent.WriteChannelContent,

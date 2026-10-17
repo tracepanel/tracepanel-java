@@ -79,6 +79,16 @@ public final class Tracepanel {
         return before;
     }
 
+    /**
+     * Names the signed-in user on the current trace, as the app's authentication knows them: their id and their
+     * username (null for none). The username stays on this machine: the agent drops it from what leaves it. Outside a
+     * trace it does nothing.
+     */
+    public static void setUser(String id, String username) {
+        Trace trace = CURRENT.get();
+        if (trace != null) trace.user(id, username);
+    }
+
     /** Where the current trace lives, for a coroutine context element that restores it on each resume. */
     public static ThreadLocal<Trace> holder() {
         return CURRENT;

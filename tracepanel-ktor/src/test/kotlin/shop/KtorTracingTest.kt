@@ -3,6 +3,7 @@ package shop
 import dev.tracepanel.core.Jdbc
 import dev.tracepanel.ktor.Tracepanel
 import dev.tracepanel.ktor.TracepanelClient
+import dev.tracepanel.ktor.tracepanelUser
 import dev.tracepanel.testing.FakeAgent
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -90,6 +91,10 @@ class KtorTracingTest {
                 }
                 get("/missing") { throw NotFoundException("no such book") }
                 get("/boom") { error("the shelf is on fire") }
+                get("/me") {
+                    call.tracepanelUser("42", "ada")
+                    call.respondText("ada")
+                }
                 get("/sold-out") { throw OutOfStock("only 2 left") }
                 get("/no-price") { throw PriceMissing("no price for book 3") }
                 get("/relay") { call.respondText(appClient.get("/books/2").bodyAsText()) }
@@ -165,6 +170,15 @@ class KtorTracingTest {
         @Suppress("UNCHECKED_CAST")
         val errors = noPrice["errors"] as List<Map<String, Any>>
         assertEquals(listOf(listOf("shop.PriceMissing", "no price for book 3", false)), errors.map { listOf(it["type"], it["message"], it["handled"]) })
+    }
+
+    @Test
+    fun the_app_names_the_signed_in_user() = app {
+        client.get("/me")
+        val trace = FakeAgent.traceAt("/me")
+
+        assertEquals("42", attrs(trace)["user.id"])
+        assertEquals("ada", attrs(trace)["user.username"])
     }
 
     @Test
