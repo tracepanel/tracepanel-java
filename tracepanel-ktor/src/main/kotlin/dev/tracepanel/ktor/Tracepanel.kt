@@ -29,7 +29,7 @@ import io.ktor.util.AttributeKey
 import io.ktor.util.pipeline.PipelinePhase
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteWriteChannel
-import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.readBuffer
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.coroutineScope
@@ -202,7 +202,7 @@ private class Decorated(
             held.flushAndClose()
         }
         val charset = contentType.charset() ?: Charsets.UTF_8
-        val html = held.readRemaining().readByteArray().toString(charset)
+        val html = held.readBuffer().readByteArray().toString(charset)
         channel.writeFully(decorate(html).toByteArray(charset))
     }
 }
@@ -211,7 +211,7 @@ private class Decorated(
 private suspend fun console(tracepanel: Core, call: ApplicationCall, path: String) {
     val method = call.request.httpMethod.value
     val query = call.request.local.uri.substringAfter('?', "")
-    val body = if (method == "GET") null else call.receiveChannel().readRemaining(Console.MAX_BODY.toLong() + 1).readByteArray()
+    val body = if (method == "GET") null else call.receiveChannel().readBuffer(Console.MAX_BODY.toLong() + 1).readByteArray()
     val answer = Console.forward(
         tracepanel, method, path + if (query.isEmpty()) "" else "?$query",
         call.request.contentType().takeIf { it != ContentType.Any }?.toString(),
