@@ -56,9 +56,9 @@ fun Application.module() {
 }
 ```
 
-Each call is a trace named by its route (`GET /books/{id}`). Its coroutines
-carry it to every thread they run on, so the queries of a suspended
-transaction on `Dispatchers.IO` are in it. `Jdbc.dataSource` records a
+Each call is a trace named by its route (`GET /books/{id}`), and its handler
+is a span of the same name. Its coroutines carry it to every thread they run
+on, so the queries of a suspended transaction on `Dispatchers.IO` are in it. `Jdbc.dataSource` records a
 DataSource's SQL (Ktor has no DI to find it by), and `TracepanelClient`
 the client's calls. An HTML page gets the badge, however it was written,
 and the console answers at `/__tracepanel__/`. Name the signed-in user with

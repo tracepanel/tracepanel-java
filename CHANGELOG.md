@@ -32,7 +32,8 @@ time.
 - A handler that answers later (a `Callable`, a `DeferredResult`, a suspend
   function) is one trace until the answer, its page with the widget.
 - Ktor 3 apps: `install(Tracepanel)` traces each call by its route, with
-  its coroutines' work on any thread, its errors, its logs and the widget
+  its handler as a span of the same name and its coroutines' work on any
+  thread, its errors, its logs and the widget
   on its pages; `TracepanelClient` records the client's calls, and
   `Jdbc.dataSource(ds)` a DataSource's SQL. On in Ktor's development mode.
 - `EXPLAIN` of a recorded query from the console, run by the app on its own

@@ -123,6 +123,11 @@ class KtorTracingTest {
         assertTrue(attrs(trace)["tracepanel.framework"].toString().startsWith("Ktor 3."), attrs(trace).toString())
         assertEquals(4, spans(trace, "sql").size)
         assertTrue(spans(trace, "sql").all { (it["attrs"] as Map<*, *>)["code.origin"].toString().contains("KtorTracingTest.kt") })
+
+        val view = spans(trace, "view").single()
+        assertEquals("GET /books/{id}", view["name"])
+        assertEquals("GET /books/{id}", attrs(trace)["code.view"])
+        assertEquals(listOf(view["id"]), spans(trace, "sql").map { it["parent_id"] }.distinct())
         @Suppress("UNCHECKED_CAST")
         val logs = trace["logs"] as List<Map<String, Any>>
         assertEquals(listOf("book 1"), logs.map { it["message"] })
