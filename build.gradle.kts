@@ -71,9 +71,9 @@ subprojects {
             }
             developers {
                 developer {
-                    id = "antonrh"
-                    name = "Anton Ruhlov"
-                    url = "https://github.com/antonrh"
+                    id = "tracepanel"
+                    name = "Tracepanel"
+                    url = "https://tracepanel.dev"
                 }
             }
             scm {

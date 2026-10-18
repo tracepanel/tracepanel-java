@@ -2,7 +2,7 @@
 
 ## 0.3.0 (2026-10-18)
 
-The first release. The SDK downloads `tracepanel-agent` 0.3.3 the first
+The first release. The SDK downloads `tracepanel-agent` 0.3.4 the first
 time.
 
 ### Added
