@@ -1,6 +1,8 @@
 # Tracepanel for Java
 
+[![CI](https://github.com/tracepanel/tracepanel-java/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tracepanel/tracepanel-java/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/dev.tracepanel/tracepanel-core)](https://central.sonatype.com/namespace/dev.tracepanel)
+[![Java](https://img.shields.io/badge/java-17%2B-blue)](https://github.com/tracepanel/tracepanel-java#tracepanel-for-java)
 
 Tracepanel shows what each request of your app did: its SQL with the line of
 your code that ran each statement, its logs and its errors. It finds what to
