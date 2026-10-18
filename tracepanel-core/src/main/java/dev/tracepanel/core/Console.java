@@ -11,13 +11,17 @@ import java.util.Set;
 
 /**
  * The console on the app's own origin, under the prefix: each request sent on to the console the project's agent
- * serves (its UI, widget.min.js and its API), the agent started when none answers. Writes (a page's traces from the
- * browser, clearing the store) come from this machine only, and up to the agent's own limit.
+ * serves (its UI, widget.min.js and its API), the agent started when none answers. It answers this machine only: the
+ * traces hold SQL parameters, errors and logs, and EXPLAIN runs queries. TRACEPANEL_CONSOLE_REMOTE=1 lets other
+ * machines read it (an app in a container, a shared dev server). Writes (a page's traces from the browser, clearing
+ * the store) come from this machine only, and up to the agent's own limit.
  */
 public final class Console {
     public static final int MAX_BODY = 8 << 20;
     private static final int TIMEOUT_MS = 10_000;
-    private static final Set<String> LOOPBACK = Set.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "::ffff:127.0.0.1");
+    // The client's address as the server read it off the connection; Ktor's test engine says "localhost".
+    private static final Set<String> LOOPBACK =
+            Set.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "::ffff:127.0.0.1", "localhost");
 
     /** The agent's answer. */
     public record Answer(int status, String contentType, Map<String, String> headers, byte[] body) {
@@ -32,11 +36,20 @@ public final class Console {
         return address != null && (LOOPBACK.contains(address) || address.startsWith("127."));
     }
 
+    /** Whether the console answers a client at `from`: this machine, or any once TRACEPANEL_CONSOLE_REMOTE opens it. */
+    static boolean answers(String from, boolean remote) {
+        return remote || local(from);
+    }
+
     /**
      * `path` below the prefix with its query ("api/traces?limit=5"); `from` the client's address. A write from
      * elsewhere is refused; so is one over MAX_BODY (`body` null: too large to read).
      */
     public static Answer forward(Tracepanel tracepanel, String method, String path, String contentType, byte[] body, String from) {
+        if (!answers(from, tracepanel.config().consoleRemote())) {
+            return Answer.text(403, "The Tracepanel console answers this machine only. TRACEPANEL_CONSOLE_REMOTE=1 opens it"
+                    + " to others, such as when the app runs in a container.");
+        }
         // EXPLAIN runs on the app's database: the app answers it, and what it can do, not the agent.
         if (method.equals("GET") && (path.equals("api/explain") || path.startsWith("api/explain?"))) {
             return Explain.answer(tracepanel, path.substring(path.indexOf('?') + 1));

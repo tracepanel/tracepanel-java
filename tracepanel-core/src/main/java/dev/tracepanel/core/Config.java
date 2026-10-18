@@ -16,6 +16,7 @@ import java.util.Set;
  * @param maxTraces how many traces the agent keeps
  * @param thresholds the limits the agent finds the issues with, as the other SDKs name them
  * @param prefix where the console answers on the app's own origin
+ * @param consoleRemote TRACEPANEL_CONSOLE_REMOTE: whether other machines may read the console; this one only by default
  */
 public record Config(
         boolean enabled,
@@ -24,7 +25,8 @@ public record Config(
         String service,
         int maxTraces,
         Map<String, Number> thresholds,
-        String prefix) {
+        String prefix,
+        boolean consoleRemote) {
 
     private static final Set<String> OFF = Set.of("0", "false", "no", "off");
 
@@ -54,11 +56,18 @@ public record Config(
                 service,
                 integer(env.get("TRACEPANEL_MAX_TRACES"), 2000),
                 thresholds(env),
-                "/__tracepanel__/");
+                "/__tracepanel__/",
+                on(env.get("TRACEPANEL_CONSOLE_REMOTE")));
     }
 
     public static Config load(String fallbackService) {
         return load(System.getenv(), fallbackService);
+    }
+
+    /** A setting that is off unless it says on (1, true, yes, on). */
+    private static boolean on(String value) {
+        String explicit = nonEmpty(value);
+        return explicit != null && !OFF.contains(explicit.toLowerCase(Locale.ROOT));
     }
 
     private static boolean enabled(String value) {

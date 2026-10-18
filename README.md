@@ -54,8 +54,11 @@ Run the app as you do (`./gradlew bootRun`, or `./mvnw spring-boot:run
 no code to add. Open a page or the Swagger UI for the badge; the console is
 at `/__tracepanel__/` on your app.
 
-Tracepanel is on whenever the dependency is there, which is why it goes in
-as a development dependency. `TRACEPANEL_ENABLED=0` turns it off.
+Tracepanel turns on in development: with a `dev`, `development` or `local`
+profile, or with Spring Boot DevTools on the classpath. Elsewhere it stays
+off, even if the dependency reached the build by mistake, and says so once in
+the log. `TRACEPANEL_ENABLED=1` turns it on anyway, `TRACEPANEL_ENABLED=0`
+off.
 
 ![The Tracepanel panel docked under a Spring Boot app's Swagger UI, showing the call tree of GET /api/catalog/products with two N+1 queries](docs/images/spring-boot.png)
 
@@ -154,6 +157,14 @@ against the checksum it was built with, and keeps it in
 another one, and without a network the SDK runs `tracepanel-agent` from the
 `PATH`.
 
+The console answers this machine only: the traces hold SQL parameters, logs
+and errors, and EXPLAIN runs queries. When the app runs in a container, or on
+a shared dev server, `TRACEPANEL_CONSOLE_REMOTE=1` lets other machines open
+it. Values under a secret's name (`password`, `token`, `api_key`, `session`,
+…) are masked before they are recorded: in the query of an outgoing call's
+URL, which also loses its `user:password@`, and in a SQL parameter bound to
+such a column (`password = ?`, `INSERT INTO users (email, password)`).
+
 Add `.tracepanel/` to your `.gitignore`: it holds the project's traces.
 
 ## Settings
@@ -162,12 +173,13 @@ The same environment variables as the other Tracepanel SDKs:
 
 | Variable | Default | What it sets |
 | --- | --- | --- |
-| `TRACEPANEL_ENABLED` | on (Ktor: in development mode) | `0` turns Tracepanel off, `1` on |
+| `TRACEPANEL_ENABLED` | in development (a `dev` or `local` profile or DevTools; Ktor's development mode) | `0` turns Tracepanel off, `1` on |
 | `TRACEPANEL_SERVICE` | `spring.application.name`, or Ktor's `ktor.application.id` | the app's name in the console |
 | `TRACEPANEL_DIR` | `.tracepanel` | the project's store, where the agent keeps the traces |
 | `TRACEPANEL_AGENT_BIN` | the one the SDK downloads | the agent to start, such as a build of your own |
 | `TRACEPANEL_AGENT` | `auto` | an agent elsewhere (`tcp:host:port`), never started |
 | `TRACEPANEL_CACHE_DIR` | `~/.cache/tracepanel` | where the downloaded agent is kept |
+| `TRACEPANEL_CONSOLE_REMOTE` | off | `1` lets other machines open the console |
 | `TRACEPANEL_N_PLUS_ONE_THRESHOLD` | `3` | repeats that make an N+1 |
 | `TRACEPANEL_SLOW_SQL_MS` | `100` | a slow query |
 | `TRACEPANEL_LONG_TRANSACTION_MS` | `500` | a long transaction |
