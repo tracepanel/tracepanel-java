@@ -59,6 +59,7 @@ testing {
             useJUnitJupiter()
             sources {
                 java.setSrcDirs(listOf("src/test/java"))
+                resources.setSrcDirs(listOf("src/test/resources"))
             }
             dependencies {
                 implementation(project())

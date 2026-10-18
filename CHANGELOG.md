@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Spring Boot: Tracepanel turns on in development only, with a `dev`,
+  `development` or `local` profile or with Spring Boot DevTools on the
+  classpath. It was on wherever the dependency was, so one that reached a
+  production build recorded every request and served the console there.
+  `TRACEPANEL_ENABLED=1` turns it on anyway. Without a profile or DevTools,
+  add one, or set the variable.
+- The console on the app's origin, EXPLAIN included, answers this machine
+  only. It answered reads from anywhere. `TRACEPANEL_CONSOLE_REMOTE=1` opens
+  it, as an app in a container needs.
+
+### Fixed
+
+- Secrets are masked before they are recorded, as in the Python SDK: an
+  outgoing call's URL loses its `user:password@` and the values of query
+  parameters such as `api_key` or `token`, and a SQL parameter bound to a
+  column such as `password` or `token` reads `********`.
+
 ## 0.3.0 (2026-10-18)
 
 The first release. The SDK downloads `tracepanel-agent` 0.3.4 the first

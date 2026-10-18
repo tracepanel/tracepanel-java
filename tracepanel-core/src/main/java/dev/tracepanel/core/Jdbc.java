@@ -219,7 +219,9 @@ public final class Jdbc {
             attrs.put("db.fingerprint", Sql.fingerprint(text));
             // Numbers and booleans as they are, everything else as its text: EXPLAIN binds them back by type.
             List<Object> values = params.stream().map(Jdbc::scalar).toList();
-            attrs.put("db.params", values);
+            // A value bound to a secret's column (password = ?) is masked; the hash, which tells an N+1 from
+            // duplicates, is of the values themselves.
+            attrs.put("db.params", Secrets.params(text, values));
             attrs.put("db.params_hash", params.isEmpty() ? null : Sql.hash(Json.write(values)));
             attrs.put("db.many", many);
             Tracepanel tracepanel = Tracepanel.get();

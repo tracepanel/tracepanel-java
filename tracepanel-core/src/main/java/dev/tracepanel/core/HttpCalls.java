@@ -82,7 +82,7 @@ public final class HttpCalls {
             Map<String, Object> attrs = new LinkedHashMap<>();
             String scheme = url.getScheme() == null ? "http" : url.getScheme();
             attrs.put("http.request.method", method);
-            attrs.put("url.full", url.toString());
+            attrs.put("url.full", Secrets.url(url));
             attrs.put("url.scheme", scheme);
             attrs.put("server.address", url.getHost());
             int defaultPort = scheme.equals("https") ? 443 : 80;
