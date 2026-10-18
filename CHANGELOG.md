@@ -1,38 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-18)
 
-### Added
-
-- The signed-in user on each trace, as `user.id` and `user.username`, as
-  the Python SDK names them. Spring Boot reads the principal from Spring
-  Security when the app has it. `Tracepanel.setUser(id, username)` names
-  the user from any code, and `call.tracepanelUser(id, username)` in Ktor.
-  The username stays on this machine.
-
-### Fixed
-
-- An HTTP call's span names the port when it isn't the scheme's default
-  (`GET 127.0.0.1:8001/rates`), as the Go SDK does, so calls to two
-  services on one host don't read as one.
-- Ktor: an exception StatusPages answers with a 4xx (404, 409, 422) is no
-  longer an error, and the trace has the status the call answered with.
-  An exception is an error when the call answers 5xx or nothing handles
-  it.
-- Spring Boot: work a bean behind a proxy (`@Transactional`, `@Cacheable`,
-  `@Validated`) hands to the application's task executor runs in the
-  request's trace, with its SQL and its HTTP calls. Only an `@Async`
-  method's call, which Spring's async interceptor submits, is a task of
-  its own.
-- A frame of a Kotlin inline function, whose line is past the end of its
-  file, no longer fails the recording of its error. The frame goes without
-  its source, and recording an error never throws in the app's place: the
-  app's own error is the one its caller sees.
-
-## 0.3.0 (2026-10-15)
-
-The first release, with `tracepanel-agent` 0.3.0, which the SDK downloads
-the first time.
+The first release. The SDK downloads `tracepanel-agent` 0.3.3 the first
+time.
 
 ### Added
 
@@ -71,3 +42,8 @@ the first time.
 - A failed request's answer carries its trace's headers, an async one keeps
   its route, and a framework's wrapper of an error already recorded isn't
   recorded again.
+- The signed-in user on each trace, as `user.id` and `user.username`, as
+  the Python SDK names them. Spring Boot reads the principal from Spring
+  Security when the app has it. `Tracepanel.setUser(id, username)` names
+  the user from any code, and `call.tracepanelUser(id, username)` in Ktor.
+  The username stays on this machine.

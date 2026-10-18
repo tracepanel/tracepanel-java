@@ -1,6 +1,7 @@
 name: Release
 
-# A tag that names a version (0.3.0, as in build.gradle.kts) publishes it to Maven Central. Nothing else does. It goes
+# A tag that names a version (0.3.0, as in build.gradle.kts) publishes it to Maven Central. Nothing else does. The
+# agent it downloads (agentVersion) is of the same minor, a patch of its own; agent.properties holds its checksums. It goes
 # out once CI has passed on the tagged commit (the run main's push made), signed, through the Central Portal: the
 # secrets MAVEN_CENTRAL_USERNAME and MAVEN_CENTRAL_PASSWORD (a Central Portal user token for the dev.tracepanel
 # namespace), SIGNING_KEY (an armored private key, its public half on a key server) and SIGNING_KEY_PASSWORD, in
@@ -50,12 +51,13 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v6
-      - name: The tag is the version, and the agent's
+      - name: The tag is the version, and the agent of its minor
         run: |
           version=$(sed -n 's/^    version = "\(.*\)"$/\1/p' build.gradle.kts)
           agent=$(sed -n 's/^agentVersion=//p' gradle.properties)
-          if [ "$version" != "$GITHUB_REF_NAME" ] || [ "$agent" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag $GITHUB_REF_NAME, version $version, agent $agent: they must agree"
+          checksums=$(sed -n 's/^version=//p' tracepanel-core/src/main/resources/dev/tracepanel/core/agent.properties)
+          if [ "$version" != "$GITHUB_REF_NAME" ] || [ "${agent%.*}" != "${version%.*}" ] || [ "$checksums" != "$agent" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, version $version, agent $agent, checksums of $checksums: the tag is the version, the agent of its minor, and ./gradlew agentIntegrity was run for it"
             exit 1
           fi
       # Uploaded, validated by the Central Portal and released: a version can't be published twice, nor removed.
@@ -66,3 +68,23 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --console=plain
+
+  github:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk -v head="## $GITHUB_REF_NAME " 'index($0, head) == 1 {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "::error::CHANGELOG.md has no entry for $GITHUB_REF_NAME" && exit 1; fi
+          case "$GITHUB_REF_NAME" in
+            *-*) pre=--prerelease ;;
+            *) pre= ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag $pre
