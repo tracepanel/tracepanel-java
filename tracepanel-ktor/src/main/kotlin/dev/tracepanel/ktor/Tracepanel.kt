@@ -50,6 +50,7 @@ class TracepanelConfig {
 private val TRACE = AttributeKey<Trace>("tracepanel.trace")
 private val ROUTE = AttributeKey<String>("tracepanel.route")
 private val FAILURE = AttributeKey<Throwable>("tracepanel.failure")
+private val VIEW = AttributeKey<Map<String, Any>>("tracepanel.view")
 
 /**
  * The whole call, from before the routing to the response sent, and around the plugins that answer an exception
@@ -101,9 +102,19 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
     if (present("ch.qos.logback.classic.LoggerContext")) LogbackRecorder.install(tracepanel)
     val prefix = config.prefix()
 
-    // The route that matched, once the routing found it: the trace's name.
+    // The route that matched, once the routing found it: the trace's name. Its handler, a lambda with no name of its
+    // own, is a view span named by the route (GET /books/{id}): what it runs, on any thread, goes under it.
     application.monitor.subscribe(RoutingRoot.RoutingCallStarted) { call ->
-        call.attributes.put(ROUTE, routePath(call.route.toString()))
+        val route = routePath(call.route.toString())
+        call.attributes.put(ROUTE, route)
+        val trace = call.attributes.getOrNull(TRACE) ?: return@subscribe
+        val name = "${call.request.httpMethod.value} $route"
+        trace.attr("code.view", name)
+        call.attributes.put(VIEW, trace.begin("view", name, emptyMap()))
+    }
+    application.monitor.subscribe(RoutingRoot.RoutingCallFinished) { call ->
+        val view = call.attributes.getOrNull(VIEW) ?: return@subscribe
+        call.attributes.getOrNull(TRACE)?.end(view, call.attributes.contains(FAILURE))
     }
 
     on(AroundCall) { call, proceed ->
