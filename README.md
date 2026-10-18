@@ -37,6 +37,8 @@ another one, and without a network the SDK runs `tracepanel-agent` from the
 Spring Boot 3.5 and 4 with Spring MVC, on Java 17 or later, in Java or in
 Kotlin. WebFlux comes next.
 
+![The Tracepanel panel docked under a Spring Boot app's Swagger UI, showing the call tree of GET /api/catalog/products with two N+1 queries](docs/images/spring-boot.png)
+
 ## Ktor
 
 ```kotlin
@@ -65,6 +67,8 @@ and the console answers at `/__tracepanel__/`. Name the signed-in user with
 Tracepanel is on in Ktor's development mode (`-Dio.ktor.development=true`,
 or `ktor.development` in the config), or with `TRACEPANEL_ENABLED=1`. The
 dependency goes into the production build, where it stays off.
+
+![The Tracepanel panel docked under a Ktor app's Swagger UI, showing the call tree of GET /api/catalog/products with three N+1 queries](docs/images/ktor.png)
 
 ## What it records
 
