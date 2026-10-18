@@ -1,7 +1,9 @@
 name: CI
 
 # The build and every test: on Spring Boot 4 and 3.5, and Ktor, with a MongoDB, a Redis, a Kafka and a RabbitMQ to
-# record calls to. Then the libraries as they would go to Maven Central, unsigned, into the local repository.
+# record calls to. Then the libraries as they would go to Maven Central, unsigned, into the local repository. A change
+# to the README, the changelog or the images alone builds nothing: `changes` says so, and the build is skipped, which
+# the branch's required check counts as passed.
 on:
   push:
     branches: [main]
@@ -15,8 +17,32 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.paths.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: paths
+        env:
+          # A pull request: what it changes from its base. A push to main: what the push added.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # A new branch, or a base this checkout doesn't have: build.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2> /dev/null; then echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          files=$(git diff --name-only "$BASE" HEAD)
+          echo "$files"
+          # Anything but the pages, the license and the README's images is code.
+          if echo "$files" | grep -qvE '(\.md$|^LICENSE$|^docs/)'; then echo "code=true"; else echo "code=false"; fi >> "$GITHUB_OUTPUT"
+
   check:
     name: Build and test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
