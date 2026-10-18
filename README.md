@@ -49,10 +49,13 @@ With Maven, add it in a profile that only development runs use:
 </profiles>
 ```
 
-Run the app as you do (`./gradlew bootRun`, or `./mvnw spring-boot:run
--Pdev`). Spring Boot picks Tracepanel up by its auto-configuration: there is
-no code to add. Open a page or the Swagger UI for the badge; the console is
-at `/__tracepanel__/` on your app.
+Run the app with Spring's `dev` profile, or with DevTools among its
+dependencies: `./gradlew bootRun --args='--spring.profiles.active=dev'`, or
+`./mvnw spring-boot:run -Pdev -Dspring-boot.run.profiles=dev` (`-Pdev` is
+the Maven profile above, the property Spring's). Spring Boot picks
+Tracepanel up by its auto-configuration: there is no code to add. Open a
+page or the Swagger UI for the badge; the console is at `/__tracepanel__/`
+on your app.
 
 Tracepanel turns on in development: with a `dev`, `development` or `local`
 profile, or with Spring Boot DevTools on the classpath. Elsewhere it stays
