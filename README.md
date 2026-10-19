@@ -154,11 +154,28 @@ request that carries a W3C `traceparent` continues the caller's trace.
 
 The agent is a program of its own, which keeps the traces and finds the
 issues. You don't install it: the SDK downloads its own version of it the
-first time, from the agent's npm package for your platform, checks it
-against the checksum it was built with, and keeps it in
-`~/.cache/tracepanel/` for every project. `TRACEPANEL_AGENT_BIN` names
+first time, checks it against the checksum it was built with, and keeps it
+in `~/.cache/tracepanel/` for every project. `TRACEPANEL_AGENT_BIN` names
 another one, and without a network the SDK runs `tracepanel-agent` from the
 `PATH`.
+
+The agent comes from Maven Central, as
+`dev.tracepanel:tracepanel-agent` with your platform as its classifier, and
+from its npm package when Maven Central has none. Where a company mirrors
+Maven Central, with Artifactory or Nexus, the SDK uses the mirror that
+`~/.m2/settings.xml` names, with its server's login (`${env.NAME}` works,
+a password Maven encrypted doesn't). `TRACEPANEL_MAVEN_REPOSITORY` names
+another repository, a login in its URL. The checksum is the binary's, so it
+holds wherever the agent comes from.
+
+Behind a company proxy, the download goes through `HTTPS_PROXY`, as curl
+and npm read it, with `NO_PROXY` for the hosts that skip it. Without them it
+uses the JVM's proxy (`-Dhttps.proxyHost`, or
+`-Djava.net.useSystemProxies=true` for the system's). A login goes in the
+proxy's URL: `http://user:password@proxy.corp:3128`. For a proxy that asks
+for a Basic login, start the JVM with
+`-Djdk.http.auth.tunneling.disabledSchemes=`, as the JDK sends none to an
+https site through a proxy otherwise.
 
 The console answers this machine only: the traces hold SQL parameters, logs
 and errors, and EXPLAIN runs queries. When the app runs in a container, or on
@@ -182,6 +199,9 @@ The same environment variables as the other Tracepanel SDKs:
 | `TRACEPANEL_AGENT_BIN` | the one the SDK downloads | the agent to start, such as a build of your own |
 | `TRACEPANEL_AGENT` | `auto` | an agent elsewhere (`tcp:host:port`), never started |
 | `TRACEPANEL_CACHE_DIR` | `~/.cache/tracepanel` | where the downloaded agent is kept |
+| `TRACEPANEL_MAVEN_REPOSITORY` | the mirror in `~/.m2/settings.xml`, else Maven Central | the Maven repository the agent is downloaded from |
+| `TRACEPANEL_NPM_REGISTRY` | npm's `registry` setting, else `https://registry.npmjs.org/` | the npm registry the agent is downloaded from, when the Maven repository has none |
+| `HTTPS_PROXY`, `NO_PROXY` | the JVM's proxy | the proxy for the agent's download, and the hosts it skips |
 | `TRACEPANEL_CONSOLE_REMOTE` | off | `1` lets other machines open the console |
 | `TRACEPANEL_N_PLUS_ONE_THRESHOLD` | `3` | repeats that make an N+1 |
 | `TRACEPANEL_SLOW_SQL_MS` | `100` | a slow query |

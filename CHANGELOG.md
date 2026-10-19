@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+The SDK downloads `tracepanel-agent` 0.3.7 the first time.
+
+### Added
+
+- The agent comes from Maven Central (`dev.tracepanel:tracepanel-agent`),
+  or from the mirror of it that `~/.m2/settings.xml` names, with its
+  server's login. A company that mirrors Maven Central with Artifactory or
+  Nexus needs nothing more. `TRACEPANEL_MAVEN_REPOSITORY` names another
+  repository. When the repository has no agent, it comes from npm, as
+  before, or from the npm mirror that `TRACEPANEL_NPM_REGISTRY` names.
+- The download goes through a company proxy: `HTTPS_PROXY` and `NO_PROXY`,
+  as curl and npm read them, else the JVM's own proxy settings. A login
+  goes in the proxy's URL.
+
+### Changed
+
+- The SDK checks the agent's binary against its checksum, not the npm
+  package it came in, so the check is the same from Maven Central, a
+  mirror or npm. A repository's login stays off the host it redirects to.
+- A failed download says where it read from, and what to set: a proxy, a
+  mirror or `TRACEPANEL_AGENT_BIN`.
+
 ## 0.3.1 (2026-10-18)
 
 ### Changed
