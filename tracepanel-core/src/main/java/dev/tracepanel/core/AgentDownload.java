@@ -19,7 +19,9 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -27,30 +29,45 @@ import java.util.Properties;
 import java.util.zip.GZIPInputStream;
 
 /**
- * The agent for a JVM app, which has no pip or npm to install it: the SDK's own version of it, downloaded once from
- * the agent's npm platform package (the same binary as on PyPI), checked against the checksum this SDK was built with,
- * and kept in the user's cache (~/.cache/tracepanel/agent/VERSION/PLATFORM/), shared by every project. Behind a proxy
- * it goes through HTTPS_PROXY (or the JVM's own proxy settings), and from a company's npm mirror with
- * TRACEPANEL_NPM_REGISTRY: the checksum is the same wherever the tarball comes from.
+ * The agent for a JVM app, which has no pip or npm to install it: the SDK's own version of it, downloaded once (the
+ * same binary as on PyPI and npm), checked against the checksum this SDK was built with,
+ * and kept in the user's cache (~/.cache/tracepanel/agent/VERSION/PLATFORM/), shared by every project. It comes from
+ * Maven Central, or the company's mirror of it, and from npm when that fails. Behind a proxy it goes through
+ * HTTPS_PROXY (or the JVM's own proxy settings). The checksum is the binary's: the same wherever it comes from.
  */
 public final class AgentDownload {
     private static final String NPM = "https://registry.npmjs.org/";
+    private static final String CENTRAL = "https://repo1.maven.org/maven2/";
+    private static final int REDIRECTS = 5;
+
+    /** Where a file is, and the Authorization header that repository takes (null: none). */
+    record Repository(URI url, String authorization) {
+        Repository resolve(String path) {
+            String base = url.toString();
+            return new Repository(URI.create((base.endsWith("/") ? base : base + "/") + path), authorization);
+        }
+    }
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
     private final Map<String, String> env;
     private final Properties known;
+    private final Path home;
 
     AgentDownload(Map<String, String> env) {
-        this(env, load());
+        this(env, load(), Path.of(System.getProperty("user.home", ".")));
     }
 
-    /** With the agent's version and checksums given: the tests' own. */
-    AgentDownload(Map<String, String> env, Properties known) {
+    /** With the agent's version and checksums, and the home Maven's settings are read from, given: the tests' own. */
+    AgentDownload(Map<String, String> env, Properties known, Path home) {
         this.env = env;
         this.known = known;
+        this.home = home;
     }
 
-    /** The agent's binary for this platform: in the cache, else downloaded there now; null when it can't be had. */
+    /**
+     * The agent's binary for this platform: in the cache, else downloaded there now, from a Maven repository (Maven
+     * Central, or the mirror Maven's settings name) or, failing that, from npm; null when it can't be had.
+     */
     synchronized Path binary() {
         String platform = platform();
         String version = known.getProperty("version");
@@ -58,32 +75,40 @@ public final class AgentDownload {
         if (version == null || integrity == null) return null;
         Path binary = cache().resolve(Path.of("agent", version, platform, executable(platform)));
         if (Files.isExecutable(binary)) return binary;
-        URI url = tarball(env, platform, version);
-        try {
-            Agent.warn("downloading the agent " + version + " for " + platform + " (once, into " + binary.getParent() + ")");
-            byte[] tarball = fetch(url);
-            if (!integrity.equals("sha512-" + Base64.getEncoder().encodeToString(sha512(tarball)))) {
-                Agent.warn("the downloaded agent didn't match its checksum: not used");
+        Agent.warn("downloading the agent " + version + " for " + platform + " (once, into " + binary.getParent() + ")");
+        List<String> failures = new ArrayList<>();
+        Repository maven = repository(env, home);
+        Repository npm = new Repository(tarball(env, platform, version), null);
+        for (Repository from : List.of(maven.resolve(artifact(platform, version)), npm)) {
+            try {
+                byte[] fetched = fetch(from);
+                byte[] file = from == npm ? entry(fetched, "package/bin/" + executable(platform)) : fetched;
+                if (file == null || !integrity.equals("sha512-" + Base64.getEncoder().encodeToString(sha512(file)))) {
+                    failures.add(from.url() + ": not the agent this SDK was built with (its checksum differs)");
+                    continue;
+                }
+                save(binary, file);
+                return binary;
+            } catch (IOException | RuntimeException e) {
+                failures.add(from.url() + ": " + e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 return null;
             }
-            byte[] file = entry(tarball, "package/bin/" + executable(platform));
-            if (file == null) return null;
-            Files.createDirectories(binary.getParent());
-            Path partial = Files.createTempFile(binary.getParent(), "tracepanel-agent", ".part");
-            Files.write(partial, file);
-            if (!partial.toFile().setExecutable(true)) Agent.warn("couldn't make " + partial + " executable");
-            // Another process may download it too: the last whole file wins, never a half-written one.
-            Files.move(partial, binary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            return binary;
-        } catch (IOException | RuntimeException e) {
-            Agent.warn("the agent couldn't be downloaded from " + url + ": " + e
-                    + ". Behind a proxy, set HTTPS_PROXY; with an npm mirror, TRACEPANEL_NPM_REGISTRY; or set"
-                    + " TRACEPANEL_AGENT_BIN to an agent's binary");
-            return null;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
         }
+        Agent.warn("the agent couldn't be downloaded. " + String.join("; ", failures) + ". Behind a proxy, set"
+                + " HTTPS_PROXY; with a Maven mirror, TRACEPANEL_MAVEN_REPOSITORY (or a mirror in ~/.m2/settings.xml);"
+                + " or set TRACEPANEL_AGENT_BIN to an agent's binary");
+        return null;
+    }
+
+    private static void save(Path binary, byte[] file) throws IOException {
+        Files.createDirectories(binary.getParent());
+        Path partial = Files.createTempFile(binary.getParent(), "tracepanel-agent", ".part");
+        Files.write(partial, file);
+        if (!partial.toFile().setExecutable(true)) Agent.warn("couldn't make " + partial + " executable");
+        // Another process may download it too: the last whole file wins, never a half-written one.
+        Files.move(partial, binary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     }
 
     /** npm's name for this platform, as the agent's packages are named; null where there is no agent. */
@@ -141,6 +166,32 @@ public final class AgentDownload {
         return Path.of(System.getProperty("user.home"), ".cache", "tracepanel");
     }
 
+    /** The platform's binary in a Maven repository: dev.tracepanel:tracepanel-agent, the platform its classifier. */
+    static String artifact(String platform, String version) {
+        return "dev/tracepanel/tracepanel-agent/" + version + "/tracepanel-agent-" + version + "-" + platform + ".exe";
+    }
+
+    /**
+     * The Maven repository the agent comes from: TRACEPANEL_MAVEN_REPOSITORY (a login in its URL), else the mirror of
+     * Maven Central that ~/.m2/settings.xml names, with its server's login, else Maven Central.
+     */
+    static Repository repository(Map<String, String> env, Path home) {
+        String named = first(env, "TRACEPANEL_MAVEN_REPOSITORY");
+        if (named != null) {
+            URI url = URI.create(named);
+            if (url.getRawUserInfo() == null) return new Repository(url, null);
+            URI bare = URI.create(url.getScheme() + "://" + url.getRawAuthority().substring(url.getRawUserInfo().length() + 1)
+                    + (url.getRawPath() == null ? "" : url.getRawPath()));
+            return new Repository(bare, basic(decode(url.getRawUserInfo())));
+        }
+        Repository mirror = MavenSettings.mirror(home.resolve(Path.of(".m2", "settings.xml")), env);
+        return mirror != null ? mirror : new Repository(URI.create(CENTRAL), null);
+    }
+
+    static String basic(String userAndPassword) {
+        return "Basic " + Base64.getEncoder().encodeToString(userAndPassword.getBytes(StandardCharsets.UTF_8));
+    }
+
     /** Where the platform's tarball is: TRACEPANEL_NPM_REGISTRY, else npm's own setting (npm_config_registry), else npm. */
     static URI tarball(Map<String, String> env, String platform, String version) {
         String registry = first(env, "TRACEPANEL_NPM_REGISTRY", "npm_config_registry", "NPM_CONFIG_REGISTRY");
@@ -182,11 +233,44 @@ public final class AgentDownload {
         return null;
     }
 
-    private byte[] fetch(URI url) throws IOException, InterruptedException {
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(TIMEOUT);
+    /**
+     * The file, through the proxy the environment names for it. Redirects are followed here, not by the client: a
+     * repository's login goes to its own host only, never to the storage it redirects to.
+     */
+    private byte[] fetch(Repository from) throws IOException, InterruptedException {
+        URI url = from.url();
+        String authorization = from.authorization();
+        for (int redirect = 0; redirect <= REDIRECTS; redirect++) {
+            HttpResponse<byte[]> response = client(url).send(request(url, authorization), HttpResponse.BodyHandlers.ofByteArray());
+            int status = response.statusCode();
+            if (status == 200) return response.body();
+            // The JDK sends no Basic login on an https tunnel unless the JVM is started with this flag.
+            if (status == 407) {
+                throw new IOException("HTTP 407 from the proxy; if it takes a Basic login, start the JVM with"
+                        + " -Djdk.http.auth.tunneling.disabledSchemes=");
+            }
+            Optional<String> location = response.headers().firstValue("Location");
+            if (status / 100 != 3 || location.isEmpty()) throw new IOException("HTTP " + status);
+            URI next = url.resolve(location.get());
+            if (!next.getScheme().equals(url.getScheme()) && !"https".equals(next.getScheme())) {
+                throw new IOException("a redirect from https to " + next.getScheme());
+            }
+            if (!sameOrigin(url, next)) authorization = null;
+            url = next;
+        }
+        throw new IOException("more than " + REDIRECTS + " redirects");
+    }
+
+    private static HttpRequest request(URI url, String authorization) {
         HttpRequest.Builder request = HttpRequest.newBuilder(url).timeout(TIMEOUT);
+        if (authorization != null) request.header("Authorization", authorization);
+        return request.build();
+    }
+
+    private HttpClient client(URI url) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .connectTimeout(TIMEOUT);
         Optional<URI> named = proxy(env, url);
         if (named.isPresent()) {
             URI proxy = named.get();
@@ -197,14 +281,16 @@ public final class AgentDownload {
             // The JVM's own: -Dhttps.proxyHost, or the system's with -Djava.net.useSystemProxies=true.
             builder.proxy(ProxySelector.getDefault());
         }
-        HttpResponse<byte[]> response = builder.build().send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
-        // The JDK sends no Basic login on an https tunnel unless the JVM is started with this flag.
-        if (response.statusCode() == 407) {
-            throw new IOException("HTTP 407 from the proxy; if it takes a Basic login, start the JVM with"
-                    + " -Djdk.http.auth.tunneling.disabledSchemes=");
-        }
-        if (response.statusCode() != 200) throw new IOException("HTTP " + response.statusCode());
-        return response.body();
+        return builder.build();
+    }
+
+    private static boolean sameOrigin(URI a, URI b) {
+        return a.getScheme().equalsIgnoreCase(b.getScheme()) && a.getHost().equalsIgnoreCase(b.getHost())
+                && port(a) == port(b);
+    }
+
+    private static int port(URI url) {
+        return url.getPort() != -1 ? url.getPort() : "https".equalsIgnoreCase(url.getScheme()) ? 443 : 80;
     }
 
     /** The proxy's user and password from its URL (http://user:password@proxy:3128), for the proxy only. */
@@ -221,7 +307,7 @@ public final class AgentDownload {
     }
 
     /** Percent-decoding alone: a URL's user part keeps its plus signs. */
-    private static String decode(String part) {
+    static String decode(String part) {
         return URLDecoder.decode(part.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
 

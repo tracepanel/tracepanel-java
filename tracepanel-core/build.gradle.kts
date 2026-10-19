@@ -1,5 +1,6 @@
 import java.net.URI
-import groovy.json.JsonSlurper
+import java.security.MessageDigest
+import java.util.Base64
 
 // No dependencies: it runs inside the app, whatever the app depends on. The integrations with a driver or a logging
 // library (dev.tracepanel.integrations) compile against the oldest versions supported, Spring Boot 3.5's, and run with
@@ -22,7 +23,7 @@ dependencies {
 }
 
 
-// The agent's npm platform packages: the binary for each platform, and npm's integrity (SHA-512) of its tarball.
+// The agent's platforms, as its npm packages and its classifiers on Maven Central name them.
 val platforms = listOf(
     "darwin-arm64", "darwin-x64",
     "linux-x64-gnu", "linux-arm64-gnu", "linux-ia32-gnu", "linux-ppc64-gnu", "linux-s390x-gnu", "linux-riscv64-gnu",
@@ -30,22 +31,28 @@ val platforms = listOf(
     "win32-x64", "win32-ia32", "win32-arm64",
 )
 
-// Run when agentVersion changes: the downloads' checksums, from npm's registry, kept in the source.
+// Run when agentVersion changes: the SHA-512 of each platform's binary, kept in the source. It is the binary's, not a
+// package's, so it holds wherever the SDK downloads it from: Maven Central, a mirror, or npm. Read here from npm, whose
+// packages hold the same binaries.
 tasks.register("agentIntegrity") {
-    description = "Writes the agent version's download checksums into agent.properties."
+    description = "Writes the agent version's binary checksums into agent.properties."
     val version = project.property("agentVersion") as String
     val out = file("src/main/resources/dev/tracepanel/core/agent.properties")
+    val scratch = layout.buildDirectory.dir("agent-integrity")
     doLast {
         val lines = mutableListOf(
-            "# The agent the SDK downloads when none is installed: npm's integrity of each platform's package.",
-            "# Written by ./gradlew agentIntegrity from the registry; agentVersion in gradle.properties names it.",
+            "# The agent the SDK downloads when none is installed: the SHA-512 of each platform's binary.",
+            "# Written by ./gradlew agentIntegrity; agentVersion in gradle.properties names it.",
             "version=$version",
         )
         for (platform in platforms) {
-            val meta = URI("https://registry.npmjs.org/@tracepanel%2Fagent-$platform/$version").toURL().readText()
-            @Suppress("UNCHECKED_CAST")
-            val dist = (JsonSlurper().parseText(meta) as Map<String, Any>)["dist"] as Map<String, Any>
-            lines += "$platform=${dist["integrity"]}"
+            val tarball = scratch.get().file("$platform.tgz").asFile
+            tarball.parentFile.mkdirs()
+            URI("https://registry.npmjs.org/@tracepanel/agent-$platform/-/agent-$platform-$version.tgz").toURL()
+                .openStream().use { input -> tarball.outputStream().use { input.copyTo(it) } }
+            val binary = project.tarTree(project.resources.gzip(tarball)).matching { include("package/bin/*") }.singleFile
+            val digest = MessageDigest.getInstance("SHA-512").digest(binary.readBytes())
+            lines += "$platform=sha512-${Base64.getEncoder().encodeToString(digest)}"
         }
         out.parentFile.mkdirs()
         out.writeText(lines.joinToString("\n", postfix = "\n"))
