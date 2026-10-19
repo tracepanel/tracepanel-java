@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The agent's download goes through a company proxy: `HTTPS_PROXY` and
+  `NO_PROXY`, as curl and npm read them, else the JVM's own proxy settings.
+  A login goes in the proxy's URL.
+- `TRACEPANEL_NPM_REGISTRY` downloads the agent from an npm mirror, such as
+  Artifactory or Nexus. npm's own `npm_config_registry` works too. The
+  checksum is checked as before.
+
+### Changed
+
+- A failed download says where it read from, and what to set: a proxy, a
+  mirror or `TRACEPANEL_AGENT_BIN`.
+
 ## 0.3.1 (2026-10-18)
 
 ### Changed

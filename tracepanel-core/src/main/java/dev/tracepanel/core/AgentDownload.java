@@ -3,7 +3,12 @@ package dev.tracepanel.core;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Authenticator;
+import java.net.InetSocketAddress;
+import java.net.PasswordAuthentication;
+import java.net.ProxySelector;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -17,24 +22,32 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.zip.GZIPInputStream;
 
 /**
  * The agent for a JVM app, which has no pip or npm to install it: the SDK's own version of it, downloaded once from
  * the agent's npm platform package (the same binary as on PyPI), checked against the checksum this SDK was built with,
- * and kept in the user's cache (~/.cache/tracepanel/agent/VERSION/PLATFORM/), shared by every project.
+ * and kept in the user's cache (~/.cache/tracepanel/agent/VERSION/PLATFORM/), shared by every project. Behind a proxy
+ * it goes through HTTPS_PROXY (or the JVM's own proxy settings), and from a company's npm mirror with
+ * TRACEPANEL_NPM_REGISTRY: the checksum is the same wherever the tarball comes from.
  */
 public final class AgentDownload {
-    private static final String REGISTRY = "https://registry.npmjs.org/@tracepanel/agent-%1$s/-/agent-%1$s-%2$s.tgz";
+    private static final String NPM = "https://registry.npmjs.org/";
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
     private final Map<String, String> env;
     private final Properties known;
 
     AgentDownload(Map<String, String> env) {
+        this(env, load());
+    }
+
+    /** With the agent's version and checksums given: the tests' own. */
+    AgentDownload(Map<String, String> env, Properties known) {
         this.env = env;
-        this.known = load();
+        this.known = known;
     }
 
     /** The agent's binary for this platform: in the cache, else downloaded there now; null when it can't be had. */
@@ -45,9 +58,10 @@ public final class AgentDownload {
         if (version == null || integrity == null) return null;
         Path binary = cache().resolve(Path.of("agent", version, platform, executable(platform)));
         if (Files.isExecutable(binary)) return binary;
+        URI url = tarball(env, platform, version);
         try {
             Agent.warn("downloading the agent " + version + " for " + platform + " (once, into " + binary.getParent() + ")");
-            byte[] tarball = fetch(String.format(REGISTRY, platform, version));
+            byte[] tarball = fetch(url);
             if (!integrity.equals("sha512-" + Base64.getEncoder().encodeToString(sha512(tarball)))) {
                 Agent.warn("the downloaded agent didn't match its checksum: not used");
                 return null;
@@ -62,7 +76,9 @@ public final class AgentDownload {
             Files.move(partial, binary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             return binary;
         } catch (IOException | RuntimeException e) {
-            Agent.warn("the agent couldn't be downloaded: " + e.getMessage());
+            Agent.warn("the agent couldn't be downloaded from " + url + ": " + e
+                    + ". Behind a proxy, set HTTPS_PROXY; with an npm mirror, TRACEPANEL_NPM_REGISTRY; or set"
+                    + " TRACEPANEL_AGENT_BIN to an agent's binary");
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -125,12 +141,88 @@ public final class AgentDownload {
         return Path.of(System.getProperty("user.home"), ".cache", "tracepanel");
     }
 
-    private static byte[] fetch(String url) throws IOException, InterruptedException {
-        HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(TIMEOUT).build();
-        HttpResponse<byte[]> response = http.send(
-                HttpRequest.newBuilder(URI.create(url)).timeout(TIMEOUT).build(), HttpResponse.BodyHandlers.ofByteArray());
-        if (response.statusCode() != 200) throw new IOException("HTTP " + response.statusCode() + " from " + url);
+    /** Where the platform's tarball is: TRACEPANEL_NPM_REGISTRY, else npm's own setting (npm_config_registry), else npm. */
+    static URI tarball(Map<String, String> env, String platform, String version) {
+        String registry = first(env, "TRACEPANEL_NPM_REGISTRY", "npm_config_registry", "NPM_CONFIG_REGISTRY");
+        String base = registry == null ? NPM : registry.endsWith("/") ? registry : registry + "/";
+        return URI.create(base + "@tracepanel/agent-" + platform + "/-/agent-" + platform + "-" + version + ".tgz");
+    }
+
+    /**
+     * The proxy the environment names for `target`, as curl and npm read it: HTTPS_PROXY for https, HTTP_PROXY for
+     * http (or their lower-case forms), unless NO_PROXY lists the host. Empty: none named.
+     */
+    static Optional<URI> proxy(Map<String, String> env, URI target) {
+        if (bypassed(first(env, "NO_PROXY", "no_proxy"), target.getHost())) return Optional.empty();
+        String proxy = "https".equals(target.getScheme())
+                ? first(env, "HTTPS_PROXY", "https_proxy")
+                : first(env, "HTTP_PROXY", "http_proxy");
+        if (proxy == null) return Optional.empty();
+        return Optional.of(URI.create(proxy.contains("://") ? proxy : "http://" + proxy));
+    }
+
+    /** Whether NO_PROXY ("localhost,.corp.example,10.0.0.1:8080", "*") lists `host`, or a domain above it. */
+    static boolean bypassed(String noProxy, String host) {
+        if (noProxy == null || host == null) return false;
+        String name = host.toLowerCase(Locale.ROOT);
+        for (String entry : noProxy.split(",")) {
+            String listed = entry.trim().toLowerCase(Locale.ROOT).replaceFirst(":\\d+$", "");
+            if (listed.equals("*")) return true;
+            listed = listed.replaceFirst("^\\*?\\.", "");
+            if (!listed.isEmpty() && (name.equals(listed) || name.endsWith("." + listed))) return true;
+        }
+        return false;
+    }
+
+    private static String first(Map<String, String> env, String... names) {
+        for (String name : names) {
+            String value = env.get(name);
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
+    }
+
+    private byte[] fetch(URI url) throws IOException, InterruptedException {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(TIMEOUT);
+        HttpRequest.Builder request = HttpRequest.newBuilder(url).timeout(TIMEOUT);
+        Optional<URI> named = proxy(env, url);
+        if (named.isPresent()) {
+            URI proxy = named.get();
+            int port = proxy.getPort() != -1 ? proxy.getPort() : "https".equals(proxy.getScheme()) ? 443 : 80;
+            builder.proxy(ProxySelector.of(new InetSocketAddress(proxy.getHost(), port)));
+            if (proxy.getRawUserInfo() != null) builder.authenticator(login(proxy.getRawUserInfo()));
+        } else if (ProxySelector.getDefault() != null) {
+            // The JVM's own: -Dhttps.proxyHost, or the system's with -Djava.net.useSystemProxies=true.
+            builder.proxy(ProxySelector.getDefault());
+        }
+        HttpResponse<byte[]> response = builder.build().send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
+        // The JDK sends no Basic login on an https tunnel unless the JVM is started with this flag.
+        if (response.statusCode() == 407) {
+            throw new IOException("HTTP 407 from the proxy; if it takes a Basic login, start the JVM with"
+                    + " -Djdk.http.auth.tunneling.disabledSchemes=");
+        }
+        if (response.statusCode() != 200) throw new IOException("HTTP " + response.statusCode());
         return response.body();
+    }
+
+    /** The proxy's user and password from its URL (http://user:password@proxy:3128), for the proxy only. */
+    private static Authenticator login(String userInfo) {
+        int colon = userInfo.indexOf(':');
+        String user = decode(colon < 0 ? userInfo : userInfo.substring(0, colon));
+        char[] password = decode(colon < 0 ? "" : userInfo.substring(colon + 1)).toCharArray();
+        return new Authenticator() {
+            @Override
+            protected PasswordAuthentication getPasswordAuthentication() {
+                return getRequestorType() == RequestorType.PROXY ? new PasswordAuthentication(user, password) : null;
+            }
+        };
+    }
+
+    /** Percent-decoding alone: a URL's user part keeps its plus signs. */
+    private static String decode(String part) {
+        return URLDecoder.decode(part.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
 
     private static byte[] sha512(byte[] data) {

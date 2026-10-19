@@ -160,6 +160,17 @@ against the checksum it was built with, and keeps it in
 another one, and without a network the SDK runs `tracepanel-agent` from the
 `PATH`.
 
+Behind a company proxy, the download goes through `HTTPS_PROXY`, as curl
+and npm read it, with `NO_PROXY` for the hosts that skip it. Without them it
+uses the JVM's proxy (`-Dhttps.proxyHost`, or
+`-Djava.net.useSystemProxies=true` for the system's). A login goes in the
+proxy's URL: `http://user:password@proxy.corp:3128`. For a proxy that asks
+for a Basic login, start the JVM with
+`-Djdk.http.auth.tunneling.disabledSchemes=`, as the JDK sends none to an
+https site through a proxy otherwise. With an npm mirror, such as
+Artifactory or Nexus, `TRACEPANEL_NPM_REGISTRY` names it. The checksum is
+the same wherever the agent comes from.
+
 The console answers this machine only: the traces hold SQL parameters, logs
 and errors, and EXPLAIN runs queries. When the app runs in a container, or on
 a shared dev server, `TRACEPANEL_CONSOLE_REMOTE=1` lets other machines open
@@ -182,6 +193,8 @@ The same environment variables as the other Tracepanel SDKs:
 | `TRACEPANEL_AGENT_BIN` | the one the SDK downloads | the agent to start, such as a build of your own |
 | `TRACEPANEL_AGENT` | `auto` | an agent elsewhere (`tcp:host:port`), never started |
 | `TRACEPANEL_CACHE_DIR` | `~/.cache/tracepanel` | where the downloaded agent is kept |
+| `TRACEPANEL_NPM_REGISTRY` | npm's `registry` setting, else `https://registry.npmjs.org/` | the npm registry the agent is downloaded from |
+| `HTTPS_PROXY`, `NO_PROXY` | the JVM's proxy | the proxy for the agent's download, and the hosts it skips |
 | `TRACEPANEL_CONSOLE_REMOTE` | off | `1` lets other machines open the console |
 | `TRACEPANEL_N_PLUS_ONE_THRESHOLD` | `3` | repeats that make an N+1 |
 | `TRACEPANEL_SLOW_SQL_MS` | `100` | a slow query |
