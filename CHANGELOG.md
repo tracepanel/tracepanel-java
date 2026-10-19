@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-10-19)
 
 The SDK downloads `tracepanel-agent` 0.3.7 the first time.
 
