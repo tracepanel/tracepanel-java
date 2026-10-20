@@ -76,7 +76,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
         String origin = request.getScheme() + "://" + request.getHeader("Host");
         request.setAttribute(TRACE, trace);
         request.setAttribute(ORIGIN, origin);
-        TracedResponse traced = new TracedResponse(response, () -> headers(trace, request, response, origin));
+        TracedResponse traced = new TracedResponse(response, () -> headers(trace, request, response, origin), () -> script(trace, request, response));
         // The ids now, so a fetch() caller can open a streamed answer too; the timing once it is known.
         response.setHeader("Tracepanel-Id", trace.id());
         Throwable failure = null;
@@ -140,7 +140,8 @@ final class TracepanelFilter extends OncePerRequestFilter {
         // Spring writes the answer through the request's own wrapper (under its async one): the page is held there,
         // and goes out to the container's response under it.
         TracedResponse own = traced(response);
-        TracedResponse traced = own != null ? own : new TracedResponse(response, () -> headers(trace, request, response, origin));
+        TracedResponse traced = own != null ? own
+                : new TracedResponse(response, () -> headers(trace, request, response, origin), () -> script(trace, request, response));
         HttpServletResponse out = (HttpServletResponse) traced.getResponse();
         Trace previous = Tracepanel.bind(trace);
         try {
@@ -210,6 +211,11 @@ final class TracepanelFilter extends OncePerRequestFilter {
         } else if (!response.isCommitted()) {
             headers(trace, request, response, origin);
         }
+    }
+
+    /** The widget's tag for a page streamed: its status and time as it starts to go out. */
+    private String script(Trace trace, HttpServletRequest request, HttpServletResponse response) {
+        return Widget.script(trace, request.getMethod(), response.getStatus(), tracepanel.config().prefix(), runtime);
     }
 
     private void headers(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {

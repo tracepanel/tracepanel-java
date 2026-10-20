@@ -24,11 +24,14 @@ public final class LogbackRecorder extends AppenderBase<ILoggingEvent> {
     /** On the root logger of Logback (Spring Boot's and Ktor's default), when Logback is the one logging. */
     public static void install(Tracepanel tracepanel) {
         if (!(LoggerFactory.getILoggerFactory() instanceof LoggerContext context)) return;
+        Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+        // Once per process: a second app that installs it (two Ktor servers) would record each log twice.
+        if (root.getAppender("tracepanel") != null) return;
         LogbackRecorder appender = new LogbackRecorder(tracepanel);
         appender.setContext(context);
         appender.setName("tracepanel");
         appender.start();
-        context.getLogger(Logger.ROOT_LOGGER_NAME).addAppender(appender);
+        root.addAppender(appender);
     }
 
     @Override

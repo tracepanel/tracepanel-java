@@ -6,6 +6,21 @@ import dev.tracepanel.ktor.TracepanelClient
 import dev.tracepanel.ktor.tracepanelUser
 import dev.tracepanel.testing.FakeAgent
 import io.ktor.client.request.get
+import io.ktor.http.HttpHeaders
+import io.ktor.server.response.header
+import io.ktor.server.response.respondBytesWriter
+import io.ktor.server.response.respondTextWriter
+import io.ktor.utils.io.writeFully
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.embeddedServer
+import java.io.ByteArrayOutputStream
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse.BodyHandlers
+import java.util.zip.GZIPOutputStream
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -24,6 +39,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.html.body
 import kotlinx.html.head
@@ -35,6 +51,15 @@ import org.junit.jupiter.api.Test
 import org.slf4j.LoggerFactory
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+
+private const val PAGE = "<!doctype html><html><head><title>t</title></head><body>x</body></html>"
+
+/** The streamed page waits here after its first piece, until the client has read it. */
+private var firstRead = CompletableDeferred<Unit>()
+
+private fun gzip(text: String): ByteArray = ByteArrayOutputStream().also { bytes ->
+    GZIPOutputStream(bytes).use { it.write(text.toByteArray()) }
+}.toByteArray()
 
 /** The app's own exceptions, which StatusPages answers. */
 class OutOfStock(message: String) : RuntimeException(message)
@@ -143,6 +168,67 @@ class KtorTracingTest {
             assertTrue(page.contains("data-tracepanel-runtime=\"Kotlin "), page)
             assertTrue(page.contains("books"), page)
         }
+    }
+
+    /** The app on a real server, CIO: the test host hands a response to its client only once it is complete. */
+    private fun served(block: (String) -> Unit) = runBlocking {
+        val server = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
+            install(Tracepanel) { packages = listOf("shop") }
+            routing {
+                get("/streamed") {
+                    call.respondTextWriter(ContentType.Text.Html) {
+                        write("<!doctype html><html><he")
+                        flush()
+                        // Until the client has read the first piece: a page held whole would never let it.
+                        val late = if (withTimeoutOrNull(10_000) { firstRead.await() } == null) "(the first piece never arrived)" else ""
+                        write("${late}ad><title>t</title></head><body>x</body></html>")
+                    }
+                }
+                get("/streamed/compressed") {
+                    call.response.header(HttpHeaders.ContentEncoding, "gzip")
+                    call.respondBytesWriter(ContentType.Text.Html) {
+                        val page = gzip(PAGE)
+                        writeFully(page, 0, 10)
+                        flush()
+                        writeFully(page, 10, page.size)
+                    }
+                }
+            }
+        }.start(wait = false)
+        try {
+            block("http://127.0.0.1:${server.engine.resolvedConnectors().first().port}")
+        } finally {
+            server.stop(0, 0)
+        }
+    }
+
+    @Test
+    fun a_streamed_page_goes_out_as_it_is_written_with_the_widget_after_its_head_opens() = served { base ->
+        firstRead = CompletableDeferred()
+        val response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("$base/streamed")).build(), BodyHandlers.ofInputStream())
+        val (first, rest) = response.body().use { body ->
+            val first = body.readNBytes("<!doctype html><html>".length).decodeToString()
+            firstRead.complete(Unit)
+            first to body.readAllBytes().decodeToString()
+        }
+        val trace = FakeAgent.traceAt("/streamed")
+
+        assertEquals(trace["id"], response.headers().firstValue("Tracepanel-Id").orElse(null))
+        assertTrue(response.headers().firstValue("Server-Timing").orElse("").contains("total;dur="), response.headers().toString())
+        assertEquals(null, response.headers().firstValue("Content-Length").orElse(null))
+
+        // Only the tag cut between the pieces waited: what came before it was out already.
+        assertEquals("<!doctype html><html>", first)
+        assertTrue(rest.startsWith("<head><script src=\"/__tracepanel__/widget.min.js\"") && rest.contains(trace["id"] as String), rest)
+        assertTrue(rest.endsWith("></script><title>t</title></head><body>x</body></html>"), rest)
+    }
+
+    @Test
+    fun a_compressed_page_streamed_is_left_as_it_is_with_the_badge_s_headers() = served { base ->
+        val response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("$base/streamed/compressed")).build(), BodyHandlers.ofByteArray())
+
+        assertTrue(response.headers().firstValue("Tracepanel-Id").isPresent, response.headers().toString())
+        assertEquals(gzip(PAGE).toList(), response.body().toList())
     }
 
     @Test

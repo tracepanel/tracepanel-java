@@ -2,7 +2,29 @@
 
 ## Unreleased
 
+### Added
+
+- A streamed HTML page gets the panel too. In Spring, that is a page the
+  app flushes before it ends, or one past the container's buffer, such as
+  a `StreamingResponseBody`. In Ktor, it is a page written as it is made:
+  `respondHtml`, `respondTextWriter`, `respondBytesWriter`, a channel. The
+  script goes in right after the `<head>` (or `<body>`) opens, as the pieces
+  pass, and nothing else is held: only a tag cut between two pieces waits
+  for its end. A streamed page also gets the badge's headers, with the time
+  so far. A compressed page, or one that declares its size, is left as it
+  is.
+
+### Changed
+
+- Spring and Ktor no longer hold a streamed HTML page whole until it ends:
+  it goes out as the app writes it.
+
 ### Fixed
+
+- A compressed HTML page (one with a `Content-Encoding`) is no longer read
+  as text for the widget, which broke it.
+- A second app in the same process that installs Tracepanel (two Ktor
+  servers) no longer records each log twice.
 
 - The first trace after the agent restarted was lost (the panel said
   "Trace not found"): the old connection still took the write on this side.

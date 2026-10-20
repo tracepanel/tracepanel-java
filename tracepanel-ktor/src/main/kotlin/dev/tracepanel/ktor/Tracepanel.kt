@@ -7,6 +7,7 @@ import dev.tracepanel.core.W3c
 import dev.tracepanel.core.Widget
 import dev.tracepanel.integrations.LogbackRecorder
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.ByteArrayContent
@@ -28,9 +29,12 @@ import io.ktor.server.routing.RoutingRoot
 import io.ktor.util.AttributeKey
 import io.ktor.util.pipeline.PipelinePhase
 import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.ByteWriteChannel
+import io.ktor.utils.io.readAvailable
 import io.ktor.utils.io.readBuffer
 import io.ktor.utils.io.writeFully
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -176,13 +180,36 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
         val type = content.contentType ?: return@on
         if (!type.match(ContentType.Text.Html)) return@on
         val status = (content.status ?: call.response.status() ?: HttpStatusCode.OK).value
-        val decorate = { html: String -> Widget.decorate(html, trace, call.request.httpMethod.value, status, prefix, runtime) }
+        val method = call.request.httpMethod.value
+        val decorate = { html: String -> Widget.decorate(html, trace, method, status, prefix, runtime) }
+        // A page written as it is made goes out so, the widget put in as it passes; one compressed or of a declared
+        // size is left as it is.
+        val streamed = {
+            val encoding = content.headers[HttpHeaders.ContentEncoding] ?: call.response.headers[HttpHeaders.ContentEncoding]
+            if (Widget.streamable(type.toString(), encoding, content.contentLength != null)) {
+                Widget.Stream(Widget.script(trace, method, status, prefix, runtime))
+            } else {
+                null
+            }
+        }
         when (content) {
             is TextContent -> transformBodyTo(TextContent(decorate(content.text), type, content.status))
             is ByteArrayContent -> transformBodyTo(
                 TextContent(decorate(content.bytes().toString(type.charset() ?: Charsets.UTF_8)), type, content.status),
             )
-            is OutgoingContent.WriteChannelContent -> transformBodyTo(Decorated(content, type, decorate))
+            is OutgoingContent.WriteChannelContent -> streamed()?.let { script ->
+                transformBodyTo(Streamed(content, type, script) { scope ->
+                    ByteChannel().also { held ->
+                        scope.launch {
+                            content.writeTo(held)
+                            held.flushAndClose()
+                        }
+                    }
+                })
+            }
+            is OutgoingContent.ReadChannelContent -> streamed()?.let { script ->
+                transformBodyTo(Streamed(content, type, script) { content.readFrom() })
+            }
             else -> Unit
         }
     }
@@ -198,23 +225,32 @@ fun ApplicationCall.tracepanelUser(id: String, username: String?) {
     attributes.getOrNull(TRACE)?.user(id, username)
 }
 
-/** A page written as it is made (kotlinx.html's respondHtml): held whole, then written with the widget. */
-private class Decorated(
-    private val page: OutgoingContent.WriteChannelContent,
+/**
+ * A page that goes out as it is made (kotlinx.html's respondHtml, respondTextWriter, a channel): each piece as it comes,
+ * through the widget's script, which goes in right after the head opens.
+ */
+private class Streamed(
+    private val page: OutgoingContent,
     override val contentType: ContentType,
-    private val decorate: (String) -> String,
+    private val script: Widget.Stream,
+    private val source: suspend (CoroutineScope) -> ByteReadChannel,
 ) : OutgoingContent.WriteChannelContent() {
     override val status: HttpStatusCode? get() = page.status
+    override val headers: Headers get() = page.headers
 
     override suspend fun writeTo(channel: ByteWriteChannel) = coroutineScope {
-        val held = ByteChannel()
-        launch {
-            page.writeTo(held)
-            held.flushAndClose()
+        val pieces = source(this)
+        val buffer = ByteArray(8192)
+        while (true) {
+            val read = pieces.readAvailable(buffer, 0, buffer.size)
+            if (read == -1) break
+            val out = script.feed(buffer, 0, read)
+            if (out.isNotEmpty()) {
+                channel.writeFully(out)
+                channel.flush()
+            }
         }
-        val charset = contentType.charset() ?: Charsets.UTF_8
-        val html = held.readBuffer().readByteArray().toString(charset)
-        channel.writeFully(decorate(html).toByteArray(charset))
+        channel.writeFully(script.end())
     }
 }
 

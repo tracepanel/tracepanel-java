@@ -21,6 +21,8 @@ dependencies {
 
     testImplementation(testFixtures(project(":tracepanel-core")))
     testImplementation("io.ktor:ktor-server-test-host:$ktor")
+    // A real server for a page that streams: the test host hands the client a response once it is complete.
+    testImplementation("io.ktor:ktor-server-cio:$ktor")
     testImplementation("io.ktor:ktor-server-core:$ktor")
     testImplementation("io.ktor:ktor-client-core:$ktor")
     testImplementation("io.ktor:ktor-client-cio:$ktor")
