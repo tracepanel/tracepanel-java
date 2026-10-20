@@ -10,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Sends the finished traces to the agent from a thread of its own, in batches: a hello line, then frames of a
@@ -39,7 +41,8 @@ public final class Sender {
     private Connection connection;
     private long retryAt;
 
-    private record Connection(AutoCloseable channel, DataOutputStream out) {}
+    /** A connection to the agent; `gone` once the agent closed it (its reader saw the end). */
+    private record Connection(AutoCloseable channel, DataOutputStream out, AtomicBoolean gone) {}
 
     public Sender(Config config, Agent agent) {
         this.config = config;
@@ -95,12 +98,44 @@ public final class Sender {
     }
 
     private Connection connection() {
+        if (connection != null && connection.gone().get()) {
+            // The agent went (a restart, a rebuild): a write would still go into this socket and be lost, unseen.
+            close();
+            retryAt = 0;
+        }
         if (connection != null) return connection;
         if (System.currentTimeMillis() < retryAt) return null;
         connection = handshake(agent.address());
         if (connection == null && agent.ensure(true)) connection = handshake(agent.address());
         if (connection == null) retryAt = System.currentTimeMillis() + RETRY_AFTER_MS;
         return connection;
+    }
+
+    /**
+     * Marks the connection gone once the agent closes it. The agent sends this app nothing after the hello, so a read
+     * returns only at its end.
+     */
+    private static void watch(AutoCloseable channel, InputStream in, AtomicBoolean gone) {
+        Thread reader = new Thread(() -> {
+            try {
+                // A unix socket's channel is read as a channel: its stream would hold the lock its writes need.
+                if (channel instanceof SocketChannel socket) {
+                    ByteBuffer skipped = ByteBuffer.allocate(256);
+                    while (socket.read(skipped.clear()) != -1) {
+                        // Nothing is expected: whatever comes is skipped, until the end.
+                    }
+                } else {
+                    while (in.read() != -1) {
+                        // As above.
+                    }
+                }
+            } catch (IOException e) {
+                // Closed on this side, or reset by the agent: gone either way.
+            }
+            gone.set(true);
+        }, "tracepanel-agent-watch");
+        reader.setDaemon(true);
+        reader.start();
     }
 
     /** A connection the agent accepted after the hello line, or null. */
@@ -147,7 +182,9 @@ public final class Sender {
                 channel.close();
                 return null;
             }
-            return new Connection(channel, new DataOutputStream(out));
+            AtomicBoolean gone = new AtomicBoolean();
+            watch(channel, in, gone);
+            return new Connection(channel, new DataOutputStream(out), gone);
         } catch (Exception e) {
             return null;
         }
