@@ -5,7 +5,13 @@ import dev.tracepanel.ktor.Tracepanel
 import dev.tracepanel.ktor.TracepanelClient
 import dev.tracepanel.ktor.tracepanelUser
 import dev.tracepanel.testing.FakeAgent
+import dev.tracepanel.core.Secrets
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.contentType
+import io.ktor.server.request.receiveText
+import io.ktor.server.routing.post
 import io.ktor.http.HttpHeaders
 import io.ktor.server.response.header
 import io.ktor.server.response.respondBytesWriter
@@ -60,6 +66,14 @@ private var firstRead = CompletableDeferred<Unit>()
 private fun gzip(text: String): ByteArray = ByteArrayOutputStream().also { bytes ->
     GZIPOutputStream(bytes).use { it.write(text.toByteArray()) }
 }.toByteArray()
+
+/** Busy for about `millis`: where a profile sees the time go. */
+fun crunch(millis: Long): Long {
+    val until = System.nanoTime() + millis * 1_000_000
+    var sum = 0L
+    while (System.nanoTime() < until) sum += java.lang.Long.numberOfTrailingZeros(System.nanoTime())
+    return sum % 10
+}
 
 /** The app's own exceptions, which StatusPages answers. */
 class OutOfStock(message: String) : RuntimeException(message)
@@ -123,6 +137,17 @@ class KtorTracingTest {
                 get("/sold-out") { throw OutOfStock("only 2 left") }
                 get("/no-price") { throw PriceMissing("no price for book 3") }
                 get("/relay") { call.respondText(appClient.get("/books/2").bodyAsText()) }
+                post("/orders") {
+                    val order = call.receiveText()
+                    call.response.header("X-Order", "17")
+                    call.respondText("ordered ${order.length}")
+                }
+                post("/ignored") { call.respondText("ignored") }
+                get("/report") {
+                    // On another thread, as a coroutine goes: the profile follows the call there.
+                    val total = withContext(Dispatchers.Default) { crunch(60) }
+                    call.respondText("report $total")
+                }
             }
         }
         block()
@@ -282,6 +307,57 @@ class KtorTracingTest {
         assertEquals("GET localhost/books/2", call["name"])
         assertEquals(200, (call["attrs"] as Map<*, *>)["http.response.status_code"])
         assertEquals((call["attrs"] as Map<*, *>)["w3c.span_id"], attrs(called)["w3c.parent_span_id"])
+    }
+
+    @Test
+    fun a_call_s_headers_query_cookies_body_and_answer_are_recorded_secrets_masked() = app {
+        client.post("/orders?coupon=KTOR&token=t") {
+            header("X-Api-Key", "k1")
+            header(HttpHeaders.Cookie, "theme=dark; session_id=abc")
+            contentType(ContentType.Application.Json)
+            setBody("{\"items\":[\"a\"],\"password\":\"p\"}")
+        }
+        client.post("/ignored") {
+            contentType(ContentType.Text.Plain)
+            setBody("never read")
+        }
+        val orders = attrs(FakeAgent.traceAt("/orders"))
+        val ignored = attrs(FakeAgent.traceAt("/ignored"))
+
+        assertEquals("application/json", orders["http.request.header.content_type"])
+        assertEquals(Secrets.MASK, orders["http.request.header.x_api_key"])
+        assertEquals("coupon=KTOR&token=${Secrets.MASK}", orders["url.query"])
+        assertEquals("dark", orders["http.request.cookie.theme"])
+        assertEquals(Secrets.MASK, orders["http.request.cookie.session_id"])
+        assertEquals(null, orders["http.request.header.cookie"])
+
+        assertEquals("{\"items\":[\"a\"],\"password\":\"${Secrets.MASK}\"}", orders["http.request.body"])
+        assertEquals("17", orders["http.response.header.x_order"])
+
+        assertEquals(null, ignored["http.request.body"])
+    }
+
+    @Test
+    fun a_call_that_asks_is_profiled_on_the_threads_its_coroutines_run_on() = app {
+        client.get("/report") { header("X-Tracepanel-Profile", "1") }
+        @Suppress("UNCHECKED_CAST")
+        val profile = FakeAgent.traceAt("/report")["profile"] as Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val frames = profile["frames"] as List<Map<String, Any>>
+        val crunch = frames.single { it["function"] == "KtorTracingTestKt.crunch" }
+        // The tests' Kotlin is under no source root the stacks look in: its file as its package names it.
+
+        assertEquals(1000, profile["interval_us"])
+        assertTrue((profile["samples"] as Int) > 5, profile.toString())
+        assertEquals(mapOf("module" to "shop.KtorTracingTestKt", "file" to "shop/KtorTracingTest.kt", "in_app" to true),
+            crunch.filterKeys { it in setOf("module", "file", "in_app") })
+    }
+
+    @Test
+    fun a_call_that_doesn_t_ask_is_not_profiled() = app {
+        client.get("/books/3")
+
+        assertEquals(null, FakeAgent.traceAt("/books/3")["profile"])
     }
 
     @Test

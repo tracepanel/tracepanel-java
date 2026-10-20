@@ -154,6 +154,20 @@ Every response carries `Tracepanel-Id` and `Server-Timing`. A single-page app
 on another origin reads them too: the SDK exposes them on CORS responses. A
 request that carries a W3C `traceparent` continues the caller's trace.
 
+A trace holds what its request carried, for the console's Request tab: its
+headers, query, cookies and body, the session (Spring), and the answer's
+headers. A body is only what the app read itself, up to 16 KB: the SDK never
+reads one for the app, and an upload is a file name and a size. A JSON body
+and a form have their secrets masked. `TRACEPANEL_CAPTURE_REQUEST=0` leaves
+all of it out.
+
+The console's Profile button profiles the next request: a sampling
+profiler reads the stack of the thread running it every millisecond, and
+the trace shows where its time went as a flame graph. A request with an
+`X-Tracepanel-Profile: 1` header is profiled too, and
+`TRACEPANEL_PROFILE=1` profiles every trace. A request nobody asked to
+profile costs nothing.
+
 The agent is a program of its own, which keeps the traces and finds the
 issues. You don't install it: the SDK downloads its own version of it the
 first time, checks it against the checksum it was built with, and keeps it
@@ -205,6 +219,10 @@ The same environment variables as the other Tracepanel SDKs:
 | `TRACEPANEL_NPM_REGISTRY` | npm's `registry` setting, else `https://registry.npmjs.org/` | the npm registry the agent is downloaded from, when the Maven repository has none |
 | `HTTPS_PROXY`, `NO_PROXY` | the JVM's proxy | the proxy for the agent's download, and the hosts it skips |
 | `TRACEPANEL_CONSOLE_REMOTE` | off | `1` lets other machines open the console |
+| `TRACEPANEL_CAPTURE_REQUEST` | on | `0` leaves a request's headers, query, cookies, body and session out |
+| `TRACEPANEL_PROFILE` | off | `1` profiles every trace, not only a request that asks |
+| `TRACEPANEL_PROFILE_ENABLED` | on | `0` turns profiling off, the Profile button with it |
+| `TRACEPANEL_PROFILE_INTERVAL_MS` | `1` | how often a profiled trace's stack is sampled |
 | `TRACEPANEL_N_PLUS_ONE_THRESHOLD` | `3` | repeats that make an N+1 |
 | `TRACEPANEL_SLOW_SQL_MS` | `100` | a slow query |
 | `TRACEPANEL_LONG_TRANSACTION_MS` | `500` | a long transaction |

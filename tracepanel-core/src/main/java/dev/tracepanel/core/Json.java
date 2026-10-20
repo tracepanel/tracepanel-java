@@ -1,5 +1,6 @@
 package dev.tracepanel.core;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -182,7 +183,12 @@ public final class Json {
             String number = text.substring(start, at);
             if (number.isEmpty()) throw new IllegalArgumentException("JSON: unexpected text at " + start);
             if (number.contains(".") || number.contains("e") || number.contains("E")) return Double.parseDouble(number);
-            return Long.parseLong(number);
+            try {
+                return Long.parseLong(number);
+            } catch (NumberFormatException e) {
+                // Past a long: as written.
+                return new BigDecimal(number);
+            }
         }
     }
 }

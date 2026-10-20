@@ -34,6 +34,9 @@ public final class Trace {
     private long duration;
     private int queries;
     private long dbMicros;
+    // Sampled while it runs, when it is profiled; its profile once it ended.
+    volatile Profiler.Recording recording;
+    private Map<String, Object> profile;
 
     Trace(String kind, String name, Map<String, Object> attrs) {
         this(kind, kind, name, attrs);
@@ -230,6 +233,11 @@ public final class Trace {
         return !errors.isEmpty();
     }
 
+    /** Where its time went in code, as the profiler recorded it (null: no sample saw it). */
+    synchronized void profile(Map<String, Object> profile) {
+        if (!finished) this.profile = profile;
+    }
+
     /** The trace ended: its document, as the agent takes it. */
     public synchronized Map<String, Object> finish() {
         finished = true;
@@ -251,6 +259,7 @@ public final class Trace {
         doc.put("errors", errors);
         doc.put("links", links);
         doc.put("issues", List.of());
+        if (profile != null) doc.put("profile", profile);
         return doc;
     }
 

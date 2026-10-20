@@ -8,7 +8,7 @@ import java.util.Map;
  * and sent to the project's agent. One per process.
  */
 public final class Tracepanel {
-    private static final ThreadLocal<Trace> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<Trace> CURRENT = new Current();
     // Which part of the project made a trace, unless its integration says: a task's is a worker, as in every SDK.
     private static final Map<String, String> ROLES = Map.of("http", "web", "task", "worker");
     private static volatile Tracepanel instance;
@@ -17,6 +17,7 @@ public final class Tracepanel {
     private final Stacks stacks;
     private final Agent agent;
     private final Sender sender;
+    private final Profiler profiler;
     private volatile String language = "java";
     private volatile String languageVersion;
     private volatile String framework;
@@ -26,6 +27,7 @@ public final class Tracepanel {
         this.stacks = new Stacks(config.root(), appPackages);
         this.agent = new Agent(config.storeDir(), System.getenv());
         this.sender = new Sender(config, agent);
+        this.profiler = new Profiler(stacks, config.profileIntervalMs());
         agent.prepare();
     }
 
@@ -115,12 +117,53 @@ public final class Tracepanel {
         trace.attr("process.runtime.name", System.getProperty("java.vm.name", "java"));
         trace.attr("process.runtime.version", System.getProperty("java.version", ""));
         CURRENT.set(trace);
+        // TRACEPANEL_PROFILE profiles every trace; a request may still ask for its own (profile).
+        if (config.profile()) profile(trace);
         return trace;
+    }
+
+    /**
+     * Samples where the trace's time goes in code, from now to its end, when profiling is possible
+     * (TRACEPANEL_PROFILE_ENABLED): a request that asked for it, with an X-Tracepanel-Profile: 1 header or the panel's
+     * tracepanel_profile=1 cookie (Profiler.requested). The trace is this thread's: begin made it so.
+     */
+    public void profile(Trace trace) {
+        if (!config.profileEnabled() || trace.recording != null) return;
+        trace.recording = profiler.start(Thread.currentThread());
     }
 
     /** The trace ended: it goes to the agent, and the thread works for none. */
     public void finish(Trace trace) {
         if (CURRENT.get() == trace) CURRENT.remove();
+        Profiler.Recording recording = trace.recording;
+        if (recording != null) trace.profile(profiler.stop(recording));
         sender.submit(trace.finish());
+    }
+
+    /**
+     * The current trace's holder, which tells a profiled trace the thread it runs on now: whoever sets it (bind, a
+     * coroutine's context element on each resume) moves the trace's sampling with it.
+     */
+    private static final class Current extends ThreadLocal<Trace> {
+        @Override
+        public void set(Trace trace) {
+            Trace before = get();
+            super.set(trace);
+            moved(before, trace);
+        }
+
+        @Override
+        public void remove() {
+            Trace before = get();
+            super.remove();
+            moved(before, null);
+        }
+
+        private static void moved(Trace before, Trace after) {
+            if (before == after) return;
+            Thread thread = Thread.currentThread();
+            if (before != null && before.recording != null) before.recording.leave(thread);
+            if (after != null && after.recording != null) after.recording.enter(thread);
+        }
     }
 }

@@ -17,6 +17,12 @@ import java.util.Set;
  * @param thresholds the limits the agent finds the issues with, as the other SDKs name them
  * @param prefix where the console answers on the app's own origin
  * @param consoleRemote TRACEPANEL_CONSOLE_REMOTE: whether other machines may read the console; this one only by default
+ * @param captureRequest TRACEPANEL_CAPTURE_REQUEST: a request's headers, query, body (what the app read), cookies and
+ *     session in its trace, masked; on by default (they never leave this machine)
+ * @param profile TRACEPANEL_PROFILE: every trace profiled; off by default, when a request still may ask (an
+ *     X-Tracepanel-Profile: 1 header, or the tracepanel_profile=1 cookie the panel's Profile button sets)
+ * @param profileEnabled TRACEPANEL_PROFILE_ENABLED: whether profiling is possible at all; off, nothing profiles
+ * @param profileIntervalMs TRACEPANEL_PROFILE_INTERVAL_MS: how often a profiled trace's stack is sampled
  */
 public record Config(
         boolean enabled,
@@ -26,7 +32,11 @@ public record Config(
         int maxTraces,
         Map<String, Number> thresholds,
         String prefix,
-        boolean consoleRemote) {
+        boolean consoleRemote,
+        boolean captureRequest,
+        boolean profile,
+        boolean profileEnabled,
+        int profileIntervalMs) {
 
     private static final Set<String> OFF = Set.of("0", "false", "no", "off");
 
@@ -57,7 +67,12 @@ public record Config(
                 integer(env.get("TRACEPANEL_MAX_TRACES"), 2000),
                 thresholds(env),
                 "/__tracepanel__/",
-                on(env.get("TRACEPANEL_CONSOLE_REMOTE")));
+                on(env.get("TRACEPANEL_CONSOLE_REMOTE")),
+                enabled(env.get("TRACEPANEL_CAPTURE_REQUEST")),
+                on(env.get("TRACEPANEL_PROFILE")),
+                enabled(env.get("TRACEPANEL_PROFILE_ENABLED")),
+                // Each millisecond, as in the Python SDK: a request of a few milliseconds still has a profile to read.
+                Math.max(integer(env.get("TRACEPANEL_PROFILE_INTERVAL_MS"), 1), 1));
     }
 
     public static Config load(String fallbackService) {
