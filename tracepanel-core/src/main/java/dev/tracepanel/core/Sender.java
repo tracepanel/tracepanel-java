@@ -73,7 +73,15 @@ public final class Sender {
         }
     }
 
-    private void send(List<Map<String, Object>> batch) {
+    /**
+     * Connect now if not yet, so the agent has heard this app's hello (what it offers the console) before the console
+     * asks; whether it is connected.
+     */
+    public synchronized boolean connected() {
+        return connection() != null;
+    }
+
+    private synchronized void send(List<Map<String, Object>> batch) {
         Connection open = connection();
         if (open == null) return;
         byte[] data = Json.write(batch).getBytes(StandardCharsets.UTF_8);
@@ -126,6 +134,10 @@ public final class Sender {
             hello.put("max_traces", config.maxTraces());
             // The agent finds the issues with this project's limits.
             hello.put("thresholds", config.thresholds());
+            // What the app offers the console, the one place it says so: the agent alone answers api/capabilities.
+            // EXPLAIN runs on the app's database, answered at the app's own console (Console), not down here.
+            hello.put("service", config.service());
+            if (Jdbc.hasDatabases()) hello.put("console", List.of("explain"));
             out.write((Json.write(hello) + "\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
             String reply = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)).readLine();

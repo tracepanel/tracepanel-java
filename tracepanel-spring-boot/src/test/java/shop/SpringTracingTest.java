@@ -135,7 +135,10 @@ class SpringTracingTest {
         assertThat(plan.body()).contains("\"vendor\":\"h2\"", "\"alias\":\"default\"", "\"analyzed\":false")
                 .containsIgnoringCase("author");
         assertThat(missing.statusCode()).isEqualTo(404);
-        assertThat(get("/__tracepanel__/api/capabilities").body()).isEqualTo("{\"explain\":true,\"users\":false}");
+        // What the console can offer comes from the agent, which heard it in the app's hello.
+        assertThat(get("/__tracepanel__/api/capabilities").body()).isEqualTo("console /api/capabilities");
+        assertThat(FakeAgent.VIA).last().isNotEqualTo("null");
+        assertThat(FakeAgent.HELLOS).anySatisfy(hello -> assertThat(hello).contains("\"console\":[\"explain\"]", "\"service\":"));
     }
 
     @Test

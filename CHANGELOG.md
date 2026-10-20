@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- What the app offers the console is said once, in the hello to the agent:
+  its service, and EXPLAIN (answered at the app's own console) once it has
+  a database. The console's `api/capabilities` comes from the agent, which
+  offers EXPLAIN only through the app's console. The app's console no longer
+  answers it itself, and connects to the agent first, so the agent has heard
+  the hello.
+
 ## 0.3.2 (2026-10-19)
 
 The SDK downloads `tracepanel-agent` 0.3.7 the first time.
