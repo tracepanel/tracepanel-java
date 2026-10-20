@@ -1,6 +1,7 @@
 package dev.tracepanel.spring;
 
 import dev.tracepanel.core.Console;
+import dev.tracepanel.core.Profiler;
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.Tracepanel;
 import dev.tracepanel.core.Widget;
@@ -15,7 +16,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -72,7 +75,11 @@ final class TracepanelFilter extends OncePerRequestFilter {
             attrs.put("w3c.trace_id", caller.group(1));
             attrs.put("w3c.parent_span_id", caller.group(2));
         }
+        // What the request carried, for the console's Request tab: the request the app gets keeps what it reads.
+        HttpServletRequest handed = tracepanel.config().captureRequest() ? CapturedRequest.begin(request, attrs) : request;
         Trace trace = tracepanel.begin("http", method + " " + path, attrs);
+        // Asked by a header or the panel's cookie: where this request's time goes in code.
+        if (Profiler.requested(request.getHeader(Profiler.HEADER), cookies(request))) tracepanel.profile(trace);
         String origin = request.getScheme() + "://" + request.getHeader("Host");
         request.setAttribute(TRACE, trace);
         request.setAttribute(ORIGIN, origin);
@@ -81,7 +88,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
         response.setHeader("Tracepanel-Id", trace.id());
         Throwable failure = null;
         try {
-            chain.doFilter(request, traced);
+            chain.doFilter(handed, traced);
         } catch (IOException | ServletException | RuntimeException | Error e) {
             failure = e;
             trace.error(e, tracepanel.stacks(), false);
@@ -106,6 +113,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
             @Override
             public void onComplete(AsyncEvent event) {
                 outcome(trace, request, response, null);
+                details(trace, request, response);
                 tracepanel.finish(trace);
             }
 
@@ -168,6 +176,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
     private void finish(Trace trace, HttpServletRequest request, HttpServletResponse response, TracedResponse traced,
             String origin, Throwable failure) throws IOException {
         outcome(trace, request, response, failure);
+        details(trace, request, response);
         respond(trace, request, response, traced, origin, failure);
         tracepanel.finish(trace);
         if (Tracepanel.current() == trace) Tracepanel.bind(null);
@@ -194,6 +203,21 @@ final class TracepanelFilter extends OncePerRequestFilter {
         if (status >= 500) trace.failed();
         // An exception the app answered with a 4xx (a missing record) was handled; one that failed the request wasn't.
         if (trace.hasErrors()) trace.errorsHandled(status < 500);
+    }
+
+    /** What the request carried that is known once it is answered: its body as read, its session, the answer's headers. */
+    private void details(Trace trace, HttpServletRequest request, HttpServletResponse response) {
+        if (!tracepanel.config().captureRequest()) return;
+        try {
+            CapturedRequest.end(request, response).forEach(trace::attr);
+        } catch (RuntimeException e) {
+            // Never the app's answer's problem.
+        }
+    }
+
+    private static String cookies(HttpServletRequest request) {
+        List<String> cookies = Collections.list(request.getHeaders("Cookie"));
+        return cookies.isEmpty() ? null : String.join("; ", cookies);
     }
 
     /** The held page out, with the widget, or the headers on what went out as written. */

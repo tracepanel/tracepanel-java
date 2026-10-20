@@ -4,6 +4,23 @@
 
 ### Added
 
+- The console's Request tab for Spring and Ktor requests, as for Python
+  ones: a trace holds its request's headers, query, cookies and body, the
+  session (Spring), and the answer's headers, under the same names and
+  with the same masks. A body is what the app read itself, up to 16 KB: a
+  JSON body with the values under a secret's name masked at any depth, a
+  form with its fields and its files by name and size. A body the app
+  didn't read is not read for it. `TRACEPANEL_CAPTURE_REQUEST=0` leaves it
+  all out.
+- The console's Profile tab: a request with an `X-Tracepanel-Profile: 1`
+  header, or the cookie of the panel's Profile button, is profiled. A
+  daemon thread samples the stack of the thread running it every
+  millisecond and follows it across threads: an async request's dispatch, a
+  coroutine on `Dispatchers.IO`. Each function is `Class.method`, your code
+  told from the libraries'. `TRACEPANEL_PROFILE=1` profiles every trace,
+  `TRACEPANEL_PROFILE_ENABLED=0` none, and `TRACEPANEL_PROFILE_INTERVAL_MS`
+  sets the interval. The hello tells the agent both, so the console offers
+  them.
 - A streamed HTML page gets the panel too. In Spring, that is a page the
   app flushes before it ends, or one past the container's buffer, such as
   a `StreamingResponseBody`. In Ktor, it is a page written as it is made:

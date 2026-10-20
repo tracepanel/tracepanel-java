@@ -2,6 +2,8 @@ package dev.tracepanel.ktor
 
 import dev.tracepanel.core.Config
 import dev.tracepanel.core.Console
+import dev.tracepanel.core.Profiler
+import dev.tracepanel.core.RequestDetails
 import dev.tracepanel.core.Trace
 import dev.tracepanel.core.W3c
 import dev.tracepanel.core.Widget
@@ -20,10 +22,12 @@ import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.Hook
 import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.application.hooks.ReceiveRequestBytes
 import io.ktor.server.application.hooks.ResponseBodyReadyForSend
 import io.ktor.server.request.contentType
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
+import io.ktor.server.request.queryString
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.RoutingRoot
@@ -35,12 +39,14 @@ import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.readAvailable
 import io.ktor.utils.io.readBuffer
 import io.ktor.utils.io.writeFully
+import io.ktor.utils.io.writer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
+import java.util.AbstractMap
 import dev.tracepanel.core.Tracepanel as Core
 
 /** The plugin's settings: what the console calls the app, and the packages that are its own code. */
@@ -56,6 +62,7 @@ private val TRACE = AttributeKey<Trace>("tracepanel.trace")
 private val ROUTE = AttributeKey<String>("tracepanel.route")
 private val FAILURE = AttributeKey<Throwable>("tracepanel.failure")
 private val VIEW = AttributeKey<Map<String, Any>>("tracepanel.view")
+private val BODY = AttributeKey<RequestDetails.Kept>("tracepanel.body")
 
 /**
  * The whole call, from before the routing to the response sent, and around the plugins that answer an exception
@@ -136,7 +143,20 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
             "service.role" to "web",
         )
         attrs.putAll(W3c.incoming(call.request.headers[W3c.HEADER]))
+        val cookies = call.request.headers.getAll(HttpHeaders.Cookie)?.joinToString("; ")
+        // What the call carried, for the console's Request tab; its body as the handler reads it (ReceiveRequestBytes).
+        if (config.captureRequest()) {
+            val headers = call.request.headers.entries().flatMap { (name, values) -> values.map { AbstractMap.SimpleEntry(name, it) } }
+            attrs.putAll(RequestDetails.requestHeaders(headers))
+            attrs.putAll(RequestDetails.query(call.request.queryString()))
+            attrs.putAll(RequestDetails.cookies(cookies))
+            val length = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull() ?: -1
+            val chunked = call.request.headers[HttpHeaders.TransferEncoding]?.contains("chunked", ignoreCase = true) == true
+            if (length > 0 || chunked) call.attributes.put(BODY, RequestDetails.Kept(length))
+        }
         val trace = tracepanel.begin("http", "$method $path", attrs)
+        // Asked by a header or the panel's cookie: where this call's time goes in code.
+        if (Profiler.requested(call.request.headers[Profiler.HEADER], cookies)) tracepanel.profile(trace)
         // On this thread only inside the call's coroutines, which put it back on every thread they resume on.
         Core.bind(null)
         call.attributes.put(TRACE, trace)
@@ -161,8 +181,29 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
             if (thrown != null && status >= 500) trace.error(thrown, tracepanel.stacks(), false)
             if (status >= 500) trace.failed()
             if (trace.hasErrors()) trace.errorsHandled(status < 500)
+            if (config.captureRequest()) {
+                val headers = call.response.headers.allValues().entries()
+                    .flatMap { (name, values) -> values.map { AbstractMap.SimpleEntry(name, it) } }
+                RequestDetails.responseHeaders(headers).forEach(trace::attr)
+                call.attributes.getOrNull(BODY)?.attrs(call.request.headers[HttpHeaders.ContentType])?.forEach(trace::attr)
+            }
             tracepanel.finish(trace)
         }
+    }
+
+    // The body as the handler reads it (receive, receiveText, a form): its start kept as it passes, nothing more read.
+    on(ReceiveRequestBytes) { call, body ->
+        val kept = call.attributes.getOrNull(BODY) ?: return@on body
+        call.writer {
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = body.readAvailable(buffer, 0, buffer.size)
+                if (read == -1) break
+                kept.add(buffer, 0, read)
+                channel.writeFully(buffer, 0, read)
+                channel.flush()
+            }
+        }.channel
     }
 
     on(Thrown) { call, cause ->
