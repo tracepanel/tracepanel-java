@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import dev.tracepanel.testing.FakeAgent;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -342,4 +345,60 @@ class SpringTracingTest {
         assertThat(response.body()).contains("later").contains("widget.min.js").contains((String) trace.get("id"));
         assertThat(response.headers().firstValue("Content-Length")).hasValue(String.valueOf(response.body().getBytes(java.nio.charset.StandardCharsets.UTF_8).length));
     }
+
+    @Test
+    void a_page_the_app_flushes_goes_out_as_it_is_written_with_the_widget_after_its_head_opens() throws Exception {
+        StreamController.firstRead = new CountDownLatch(1);
+        HttpResponse<InputStream> response = http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/streamed/flushed")).build(),
+                HttpResponse.BodyHandlers.ofInputStream());
+        String first;
+        String rest;
+        try (InputStream body = response.body()) {
+            first = new String(body.readNBytes("<!doctype html><html>".length()), StandardCharsets.UTF_8);
+            StreamController.firstRead.countDown();
+            rest = new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        Map<String, Object> trace = FakeAgent.traceAt("/streamed/flushed");
+
+        assertThat(response.headers().firstValue("Tracepanel-Id")).hasValue((String) trace.get("id"));
+        assertThat(response.headers().firstValue("Server-Timing").orElse("")).contains("total;dur=", "tracepanel-issues;desc=\"pending\"");
+        assertThat(response.headers().firstValue("Content-Length")).isEmpty();
+
+        // Only the tag cut between the pieces waited: what came before it was out already.
+        assertThat(first).isEqualTo("<!doctype html><html>");
+        assertThat(rest).startsWith("<head><script src=\"/__tracepanel__/widget.min.js\"").contains((String) trace.get("id"))
+                .endsWith("></script><title>t</title></head><body>x</body></html>");
+    }
+
+    @Test
+    void a_streaming_response_body_page_gets_the_widget_as_it_goes_out() throws Exception {
+        StreamController.firstRead = new CountDownLatch(1);
+        HttpResponse<InputStream> response = http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/streamed/body")).build(),
+                HttpResponse.BodyHandlers.ofInputStream());
+        String first;
+        String rest;
+        try (InputStream body = response.body()) {
+            first = new String(body.readNBytes(1000), StandardCharsets.UTF_8);
+            StreamController.firstRead.countDown();
+            rest = new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        Map<String, Object> trace = FakeAgent.traceAt("/streamed/body");
+
+        assertThat(response.headers().firstValue("Tracepanel-Id")).hasValue((String) trace.get("id"));
+        assertThat(response.headers().firstValue("Content-Length")).isEmpty();
+
+        assertThat(first).startsWith("<!doctype html><html><head><script src=\"/__tracepanel__/widget.min.js\"");
+        assertThat((first + rest).replaceFirst("<script [^>]*></script>", ""))
+                .isEqualTo("<!doctype html><html><head><title>t</title></head><body>" + StreamController.FILLER + "</body></html>");
+    }
+
+    @Test
+    void a_compressed_page_streamed_is_left_as_it_is_with_the_badge_s_headers() throws Exception {
+        HttpResponse<byte[]> response = http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/streamed/compressed")).build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+
+        assertThat(response.headers().firstValue("Tracepanel-Id")).isPresent();
+        assertThat(response.body()).isEqualTo(StreamController.gzip(StreamController.PAGE));
+    }
 }
+

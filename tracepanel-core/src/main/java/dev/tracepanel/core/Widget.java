@@ -1,5 +1,7 @@
 package dev.tracepanel.core;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -41,12 +43,87 @@ public final class Widget {
     public static String decorate(String html, Trace trace, String method, int status, String prefix, String runtime) {
         Matcher head = HEAD.matcher(html);
         if (!head.find()) return html;
-        String tag = "<script src=\"" + prefix + "widget.min.js\" data-tracepanel-api=\"" + prefix + "\""
+        String tag = script(trace, method, status, prefix, runtime);
+        return html.substring(0, head.end()) + tag + html.substring(head.end());
+    }
+
+    /** The widget's tag, carrying the page's own request; ASCII whatever the page's encoding. */
+    public static String script(Trace trace, String method, int status, String prefix, String runtime) {
+        return "<script src=\"" + prefix + "widget.min.js\" data-tracepanel-api=\"" + prefix + "\""
                 + attr("id", trace.id()) + attr("method", method) + attr("status", String.valueOf(status))
                 + attr("total", format(trace.elapsedMillis())) + attr("db", format(trace.dbMillis()))
                 + attr("queries", String.valueOf(trace.queries())) + attr("issues", "pending")
                 + attr("runtime", runtime) + "></script>";
-        return html.substring(0, head.end()) + tag + html.substring(head.end());
+    }
+
+    /**
+     * Whether a page that goes out in pieces gets the widget as they pass: HTML, not compressed, its size not declared
+     * (the widget would change it).
+     */
+    public static boolean streamable(String contentType, String contentEncoding, boolean sized) {
+        return contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("text/html")
+                && contentEncoding == null && !sized;
+    }
+
+    /**
+     * The widget put into an HTML page that goes out in pieces, as they pass: right after its head opens, or its body
+     * without one. Nothing is held but the end of a piece from its last `<` (a tag that may go on in the next one),
+     * until the widget is in; a page streamed {@link #LOOKAHEAD} bytes without either passes as it comes.
+     */
+    public static final class Stream {
+        private static final Pattern OPENING = Pattern.compile("<(?:head|body)(?:\\s[^>]*)?>", Pattern.CASE_INSENSITIVE);
+        public static final int LOOKAHEAD = 65_536;
+        private static final byte[] NOTHING = new byte[0];
+
+        private final byte[] tag;
+        private byte[] held = NOTHING;
+        private long seen;
+        private boolean done;
+
+        public Stream(String tag) {
+            this.tag = tag.getBytes(StandardCharsets.US_ASCII);
+        }
+
+        /** What goes out now, of the piece and what was held. */
+        public byte[] feed(byte[] piece, int offset, int length) {
+            if (done) return Arrays.copyOfRange(piece, offset, offset + length);
+            byte[] data = new byte[held.length + length];
+            System.arraycopy(held, 0, data, 0, held.length);
+            System.arraycopy(piece, offset, data, held.length, length);
+            held = NOTHING;
+            // ISO-8859-1 keeps one character per byte: the indexes found are the bytes'.
+            String text = new String(data, StandardCharsets.ISO_8859_1);
+            Matcher found = OPENING.matcher(text);
+            if (found.find()) {
+                done = true;
+                byte[] out = new byte[data.length + tag.length];
+                System.arraycopy(data, 0, out, 0, found.end());
+                System.arraycopy(tag, 0, out, found.end(), tag.length);
+                System.arraycopy(data, found.end(), out, found.end() + tag.length, data.length - found.end());
+                return out;
+            }
+            seen += length;
+            if (seen > LOOKAHEAD) {
+                done = true;
+                return data;
+            }
+            int cut = text.lastIndexOf('<');
+            if (cut == -1 || text.indexOf('>', cut) != -1) return data;
+            held = Arrays.copyOfRange(data, cut, data.length);
+            return Arrays.copyOf(data, cut);
+        }
+
+        public byte[] feed(byte[] piece) {
+            return feed(piece, 0, piece.length);
+        }
+
+        /** What was held, once the body ends. */
+        public byte[] end() {
+            byte[] rest = held;
+            held = NOTHING;
+            done = true;
+            return rest;
+        }
     }
 
     /**
