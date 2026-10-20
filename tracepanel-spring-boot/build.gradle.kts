@@ -17,6 +17,10 @@ dependencies {
     compileOnly("org.springframework:spring-webmvc")
     compileOnly("jakarta.servlet:jakarta.servlet-api")
     compileOnly("ch.qos.logback:logback-classic")
+    compileOnly("org.apache.logging.log4j:log4j-core")
+    // The annotations log4j's classes carry, which it leaves out: without them -Xlint:classfile fails the build.
+    compileOnly("biz.aQute.bnd:biz.aQute.bnd.annotation:7.4.0")
+    compileOnly("com.github.spotbugs:spotbugs-annotations:4.10.5")
     compileOnly("org.springframework:spring-webflux")
     compileOnly("io.projectreactor:reactor-core")
     compileOnly("org.mongodb:mongodb-driver-core")

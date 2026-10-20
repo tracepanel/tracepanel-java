@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The tests' Log4j 2: everything from debug up reaches the root logger, which prints nothing. -->
+<Configuration status="WARN">
+  <Loggers>
+    <Root level="debug"/>
+  </Loggers>
+</Configuration>

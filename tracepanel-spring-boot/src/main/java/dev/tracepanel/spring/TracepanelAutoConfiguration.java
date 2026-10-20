@@ -44,6 +44,7 @@ public class TracepanelAutoConfiguration {
         if (kotlin != null) tracepanel.language("kotlin", kotlin);
         tracepanel.framework("Spring Boot " + SpringBootVersion.getVersion());
         if (isPresent("ch.qos.logback.classic.LoggerContext")) dev.tracepanel.integrations.LogbackRecorder.install(tracepanel);
+        if (isPresent("org.apache.logging.log4j.core.LoggerContext")) dev.tracepanel.integrations.Log4j2Recorder.install(tracepanel);
         return tracepanel;
     }
 

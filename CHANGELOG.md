@@ -13,6 +13,16 @@
   for its end. A streamed page also gets the badge's headers, with the time
   so far. A compressed page, or one that declares its size, is left as it
   is.
+- Log4j 2: in an app that logs with it (`spring-boot-starter-log4j2`, or
+  `log4j-core` in a Ktor app), each record made during a request or a task
+  goes to its trace, as Logback's do: the level (`FATAL` is `critical`), the
+  logger, the message and its template, the line that logged it, the MDC
+  (`ThreadContext`) as `extra.*` attributes, secrets masked, and the
+  exception with its stack. It is installed once per process, and stays
+  through a reconfiguration, such as Spring Boot's own after startup. A
+  record made through an async logger is not in a trace: it is appended on
+  another thread.
+- Logback: a record's MDC is in the trace too, as `extra.*` attributes.
 
 ### Changed
 

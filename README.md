@@ -72,7 +72,8 @@ off.
 - SQL through JDBC, whatever runs it (Spring Data JPA, Hibernate,
   `JdbcTemplate`, jOOQ): each statement with its parameters, the rows it
   returned and the line of your code that ran it, and each transaction.
-- Logback records made during a request, with the line that logged them.
+- Logback and Log4j 2 records made during a request, with the line that logged
+  them, their MDC and their exception.
 - Errors a handler throws, with your frames and the source around them. An
   exception the app answers with a 4xx is the answer, not an error.
 - Calls to HTTP APIs through `RestClient`, `RestTemplate`, `WebClient` and
@@ -138,7 +139,8 @@ is at `/__tracepanel__/` on your app.
   returned and the line of your code that ran it, and each transaction.
 - Calls through the client with `TracepanelClient`, each with a
   `traceparent`.
-- Logback records made during a call, with the line that logged them.
+- Logback and Log4j 2 records made during a call, with the line that logged
+  them, their MDC and their exception.
 - Errors a call fails with. One that StatusPages answers with a 4xx is the
   answer, not an error.
 - The badge on HTML pages, however they were written (`respondText`,
