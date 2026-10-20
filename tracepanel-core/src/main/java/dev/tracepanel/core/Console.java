@@ -55,7 +55,8 @@ public final class Console {
             return Explain.answer(tracepanel, path.substring(path.indexOf('?') + 1));
         }
         if (method.equals("GET") && (path.equals("api/capabilities") || path.startsWith("api/capabilities?"))) {
-            return Explain.capabilities();
+            // The agent answers what the console can offer, from the app's hello: connected now, it has heard it.
+            tracepanel.connected();
         }
         if (!method.equals("GET") && !method.equals("HEAD")) {
             if (!local(from)) return Answer.text(403, "The Tracepanel console takes writes from this machine only.");
@@ -66,12 +67,12 @@ public final class Console {
         if (base == null && agent.ensure(false)) base = agent.console();
         if (base == null) return Answer.text(503, "No Tracepanel agent: set TRACEPANEL_AGENT_BIN, or put tracepanel-agent on the PATH.");
         try {
-            return fetch(base + path, method, contentType, body);
+            return fetch(base + path, method, contentType, body, tracepanel.config().service());
         } catch (IOException e) {
             // The agent at the address left there exited: a new one, and the request once more.
             if (agent.ensure(true) && (base = agent.console()) != null) {
                 try {
-                    return fetch(base + path, method, contentType, body);
+                    return fetch(base + path, method, contentType, body, tracepanel.config().service());
                 } catch (IOException again) {
                     return Answer.text(502, "Tracepanel's agent doesn't answer.");
                 }
@@ -80,9 +81,14 @@ public final class Console {
         }
     }
 
-    private static Answer fetch(String url, String method, String contentType, byte[] body) throws IOException {
+    /**
+     * The agent's answer; `service` says which app's console asked, so the agent offers it what the app answers here
+     * (EXPLAIN).
+     */
+    private static Answer fetch(String url, String method, String contentType, byte[] body, String service) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
         connection.setRequestMethod(method);
+        connection.setRequestProperty("Tracepanel-Console", service);
         connection.setConnectTimeout(TIMEOUT_MS);
         connection.setReadTimeout(TIMEOUT_MS);
         if (body != null && body.length > 0) {

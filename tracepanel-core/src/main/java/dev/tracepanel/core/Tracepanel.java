@@ -40,6 +40,11 @@ public final class Tracepanel {
         return instance;
     }
 
+    /** Connected to the agent now if it can be, so it has heard what this app offers the console. */
+    boolean connected() {
+        return sender.connected();
+    }
+
     public Config config() {
         return config;
     }

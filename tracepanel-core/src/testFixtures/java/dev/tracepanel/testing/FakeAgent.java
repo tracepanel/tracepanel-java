@@ -24,6 +24,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class FakeAgent {
     public static final List<Map<String, Object>> TRACES = new CopyOnWriteArrayList<>();
     public static final List<String> CONSOLE_CALLS = new CopyOnWriteArrayList<>();
+    /** Each connection's hello line, as the SDK sent it. */
+    public static final List<String> HELLOS = new CopyOnWriteArrayList<>();
+    /** The app each console call came through (its Tracepanel-Console header), by call. */
+    public static final List<String> VIA = new CopyOnWriteArrayList<>();
     private static boolean started;
 
     private FakeAgent() {}
@@ -51,6 +55,7 @@ public final class FakeAgent {
             String call = exchange.getRequestMethod() + " " + exchange.getRequestURI() + " "
                     + new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             CONSOLE_CALLS.add(call.trim());
+            VIA.add(String.valueOf(exchange.getRequestHeaders().getFirst("Tracepanel-Console")));
             // A stored trace, as the agent's API gives it (the app's EXPLAIN reads its statement there).
             String path = exchange.getRequestURI().getPath();
             Map<String, Object> stored = path.startsWith("/api/traces/") ? TRACES.stream()
@@ -80,6 +85,7 @@ public final class FakeAgent {
                     return line.toString();
                 }
             }.readLine();
+            HELLOS.add(hello);
             if (!hello.contains("\"protocol\":1")) return;
             socket.getOutputStream().write("{\"ok\":true}\n".getBytes(StandardCharsets.UTF_8));
             while (true) {
