@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- The first trace after the agent restarted was lost (the panel said
+  "Trace not found"): the old connection still took the write on this side.
+  The SDK now watches the connection for its end, and connects again
+  before the next batch.
+
 ### Changed
 
 - What the app offers the console is said once, in the hello to the agent:
