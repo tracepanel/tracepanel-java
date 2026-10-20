@@ -15,8 +15,16 @@ description = "Tracepanel's recorder for the JVM: traces a request's SQL, logs, 
 
 dependencies {
     testFixturesImplementation("com.jayway.jsonpath:json-path:2.9.0")
+    testImplementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
+    testImplementation("org.apache.logging.log4j:log4j-core")
+    testCompileOnly("biz.aQute.bnd:biz.aQute.bnd.annotation:7.4.0")
+    testCompileOnly("com.github.spotbugs:spotbugs-annotations:4.10.5")
     compileOnly(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
     compileOnly("ch.qos.logback:logback-classic")
+    compileOnly("org.apache.logging.log4j:log4j-core")
+    // The annotations log4j's classes carry, which it leaves out: without them -Xlint:classfile fails the build.
+    compileOnly("biz.aQute.bnd:biz.aQute.bnd.annotation:7.4.0")
+    compileOnly("com.github.spotbugs:spotbugs-annotations:4.10.5")
     compileOnly("org.mongodb:mongodb-driver-core")
     compileOnly("io.lettuce:lettuce-core")
     compileOnly("org.apache.kafka:kafka-clients")

@@ -18,6 +18,7 @@ dependencies {
     compileOnly("org.jetbrains.kotlin:kotlin-stdlib")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     compileOnly("ch.qos.logback:logback-classic:1.5.18")
+    compileOnly("org.apache.logging.log4j:log4j-core:2.24.3")
 
     testImplementation(testFixtures(project(":tracepanel-core")))
     testImplementation("io.ktor:ktor-server-test-host:$ktor")

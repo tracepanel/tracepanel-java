@@ -5,6 +5,7 @@ import dev.tracepanel.core.Console
 import dev.tracepanel.core.Trace
 import dev.tracepanel.core.W3c
 import dev.tracepanel.core.Widget
+import dev.tracepanel.integrations.Log4j2Recorder
 import dev.tracepanel.integrations.LogbackRecorder
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
@@ -104,6 +105,7 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
     tracepanel.framework("Ktor $ktorVersion".trim())
     val runtime = "Kotlin ${kotlin.major}.${kotlin.minor}" + if (ktorVersion.isEmpty()) "" else " · Ktor ${minor(ktorVersion)}"
     if (present("ch.qos.logback.classic.LoggerContext")) LogbackRecorder.install(tracepanel)
+    if (present("org.apache.logging.log4j.core.LoggerContext")) Log4j2Recorder.install(tracepanel)
     val prefix = config.prefix()
 
     // The route that matched, once the routing found it: the trace's name. Its handler, a lambda with no name of its

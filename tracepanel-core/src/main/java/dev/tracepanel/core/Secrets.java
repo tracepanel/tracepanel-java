@@ -25,6 +25,11 @@ public final class Secrets {
 
     private Secrets() {}
 
+    /** Whether a value under this name (a log's field, a query parameter) is a secret. */
+    public static boolean secret(String name) {
+        return NAME.matcher(name).find();
+    }
+
     /** A URL without its credentials (user:password@), and with the values of secret query parameters masked. */
     public static String url(URI url) {
         String query = url.getRawQuery();

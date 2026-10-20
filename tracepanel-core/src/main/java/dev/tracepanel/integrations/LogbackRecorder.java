@@ -48,6 +48,7 @@ public final class LogbackRecorder extends AppenderBase<ILoggingEvent> {
         }
         attrs.put("thread.name", event.getThreadName());
         attrs.put("log.template", event.getMessage());
+        LogFields.put(attrs, event.getMDCPropertyMap());
         IThrowableProxy thrown = event.getThrowableProxy();
         trace.log(level(event.getLevel()), event.getLoggerName(), event.getFormattedMessage(),
                 thrown == null ? null : ThrowableProxyUtil.asString(thrown), attrs);
