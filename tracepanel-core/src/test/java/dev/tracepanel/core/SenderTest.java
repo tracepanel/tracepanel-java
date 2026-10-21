@@ -28,6 +28,7 @@ class SenderTest {
     static final class OneAgent implements AutoCloseable {
         final ServerSocket server = new ServerSocket(0, 5, InetAddress.getLoopbackAddress());
         final List<String> frames = new CopyOnWriteArrayList<>();
+        final List<String> hellos = new CopyOnWriteArrayList<>();
         final List<Socket> connections = new CopyOnWriteArrayList<>();
 
         OneAgent() throws IOException {
@@ -49,9 +50,9 @@ class SenderTest {
         private void serve(Socket socket) {
             try {
                 DataInputStream in = new DataInputStream(socket.getInputStream());
-                for (int c = in.read(); c != -1 && c != '\n'; c = in.read()) {
-                    // The hello line.
-                }
+                StringBuilder hello = new StringBuilder();
+                for (int c = in.read(); c != -1 && c != '\n'; c = in.read()) hello.append((char) c);
+                hellos.add(hello.toString());
                 socket.getOutputStream().write("{\"ok\":true}\n".getBytes(StandardCharsets.UTF_8));
                 while (true) {
                     byte[] frame = new byte[in.readInt()];

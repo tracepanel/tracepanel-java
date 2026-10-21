@@ -107,6 +107,33 @@ tasks.withType<Test>().configureEach {
     environment("SPRING_RABBITMQ_LISTENER_SIMPLE_AUTO_STARTUP", (rabbit != null).toString())
 }
 
+// The console's Live with the real agent, when TEST_AGENT_BIN names its binary (a build of it from source, before a
+// release that has what the test asks for): the app starts it, as in development, and the test stops it. The other
+// test tasks talk to the tests' fake agent and leave this one out.
+val agentTest = "shop.LiveTasksAgentTest"
+val agentBin: String? = System.getenv("TEST_AGENT_BIN")
+val testAgent by tasks.registering(Test::class) {
+    description = "Runs the tests against the real agent named by TEST_AGENT_BIN."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter { includeTestsMatching(agentTest) }
+    onlyIf { agentBin != null }
+    agentBin?.let { environment("TRACEPANEL_AGENT_BIN", it) }
+    shouldRunAfter(tasks.test)
+    // The agent outlives the app it started: stopped here too, should the tests not get to it.
+    val store = layout.buildDirectory.dir("tracepanel-test/testAgent").get().asFile.absolutePath
+    doLast {
+        ProcessHandle.allProcesses()
+            .filter { it.info().commandLine().orElse("").contains("--dir $store") }
+            .forEach { it.destroy() }
+    }
+}
+tasks.withType<Test>().matching { it.name != testAgent.name }.configureEach {
+    filter { excludeTestsMatching(agentTest) }
+}
+
 tasks.check {
     dependsOn(testing.suites.named("testBoot35"))
+    dependsOn(testAgent)
 }

@@ -18,6 +18,7 @@ public final class Tracepanel {
     private final Agent agent;
     private final Sender sender;
     private final Profiler profiler;
+    private final LiveTasks tasks;
     private volatile String language = "java";
     private volatile String languageVersion;
     private volatile String framework;
@@ -28,6 +29,7 @@ public final class Tracepanel {
         this.agent = new Agent(config.storeDir(), System.getenv());
         this.sender = new Sender(config, agent);
         this.profiler = new Profiler(stacks, config.profileIntervalMs());
+        this.tasks = new LiveTasks(sender, config.service());
         agent.prepare();
     }
 
@@ -57,6 +59,11 @@ public final class Tracepanel {
 
     public Agent agent() {
         return agent;
+    }
+
+    /** The tasks in flight in this process, told to the console's Live as they go. */
+    public LiveTasks tasks() {
+        return tasks;
     }
 
     /** The app's language when it isn't Java: "kotlin", with Kotlin's own version (the JVM's is the runtime's). */

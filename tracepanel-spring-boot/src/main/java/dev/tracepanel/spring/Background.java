@@ -1,7 +1,9 @@
 package dev.tracepanel.spring;
 
+import dev.tracepanel.core.LiveTasks;
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.Tracepanel;
+import dev.tracepanel.core.Ulid;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -21,12 +23,18 @@ import org.springframework.scheduling.annotation.Scheduled;
  * call tree, the task.enqueue that queued it, which its trace links back to), an @Scheduled method's run and a
  * CommandLineRunner's or ApplicationRunner's are commands (the console's Jobs). Inside a trace (an @Async method
  * on a synchronous executor), the work is a step of it.
+ *
+ * <p>The console's Live (the Tasks page's Now) shows them as they go: an @Async method's run is queued from its
+ * task.enqueue on, then runs (system spring); an @Scheduled method's runs (system scheduled). A runner's isn't: it is
+ * the app starting.
  */
 final class Background implements MethodInterceptor {
+    static final String ASYNC = "spring";
+    static final String SCHEDULED = "scheduled";
     // Where the executor's thread finds what queued the task it runs: the queuing trace, its span and its role.
     private static final ThreadLocal<Queued> QUEUED = new ThreadLocal<>();
 
-    private record Queued(String traceId, String spanId, Object role) {}
+    private record Queued(String traceId, String spanId, Object role, String taskId) {}
 
     @Override
     public Object invoke(MethodInvocation invocation) throws Throwable {
@@ -37,33 +45,50 @@ final class Background implements MethodInterceptor {
         String name = type.getSimpleName() + "." + method.getName();
         Trace current = Tracepanel.current();
         if (current != null) return step(current, name, type, method, invocation);
-        boolean task = AnnotatedElementUtils.hasAnnotation(method, Async.class) || AnnotatedElementUtils.hasAnnotation(type, Async.class);
+        boolean task = async(method, type);
         Map<String, Object> attrs = new LinkedHashMap<>();
         attrs.put("code.function", type.getName() + "." + method.getName());
         Queued queued = QUEUED.get();
         Trace trace;
+        // In the console's Live while it runs: an @Async method's run (spring), an @Scheduled one's (scheduled).
+        String live = null;
+        String liveId = queued != null ? queued.taskId() : Ulid.next();
         if (task) {
-            attrs.put("task.system", "spring");
+            live = ASYNC;
+            attrs.put("task.system", ASYNC);
             attrs.put("task.name", name);
+            attrs.put("task.id", liveId);
+            attrs.put("task.worker", tracepanel.tasks().worker());
             attrs.put("task.trigger", queued == null ? "other" : "request");
             if (queued != null && queued.role() != null) attrs.put("service.role", queued.role());
             trace = tracepanel.begin("task", "task.run", name, attrs);
             if (queued != null) trace.link("enqueued_by", queued.traceId(), queued.spanId());
         } else {
             Scheduled scheduled = AnnotatedElementUtils.findMergedAnnotation(method, Scheduled.class);
-            if (scheduled != null) attrs.put("command.schedule", schedule(scheduled));
+            if (scheduled != null) {
+                live = SCHEDULED;
+                attrs.put("command.schedule", schedule(scheduled));
+            }
             attrs.put("command.trigger", scheduled != null ? "schedule" : "startup");
             trace = tracepanel.begin("command", name, attrs);
         }
+        if (live != null) tracepanel.tasks().started(live, liveId, name, null, 0);
+        boolean failed = false;
         try {
             return invocation.proceed();
         } catch (Throwable error) {
+            failed = true;
             trace.error(error, tracepanel.stacks(), false);
             trace.failed();
             throw error;
         } finally {
             tracepanel.finish(trace);
+            if (live != null) tracepanel.tasks().finished(live, liveId, failed ? "FAILURE" : "SUCCESS");
         }
+    }
+
+    private static boolean async(Method method, Class<?> type) {
+        return AnnotatedElementUtils.hasAnnotation(method, Async.class) || AnnotatedElementUtils.hasAnnotation(type, Async.class);
     }
 
     private static Object step(Trace trace, String name, Class<?> type, Method method, MethodInvocation invocation) throws Throwable {
@@ -92,10 +117,17 @@ final class Background implements MethodInterceptor {
         return scheduled.timeUnit().name().toLowerCase(java.util.Locale.ROOT);
     }
 
-    /** Whether a method is background work this traces: @Async, @Scheduled, or a runner's run. */
+    /**
+     * Whether a method is background work this traces: @Async, @Scheduled, or a runner's run. An app with @Async or
+     * @Scheduled methods sends task events, and says so from the start.
+     */
     static boolean traced(Method method, Class<?> type) {
-        if (AnnotatedElementUtils.hasAnnotation(method, Async.class) || AnnotatedElementUtils.hasAnnotation(type, Async.class)
-                || AnnotatedElementUtils.hasAnnotation(method, Scheduled.class)) {
+        if (async(method, type)) {
+            LiveTasks.expect(ASYNC);
+            return true;
+        }
+        if (AnnotatedElementUtils.hasAnnotation(method, Scheduled.class)) {
+            LiveTasks.expect(SCHEDULED);
             return true;
         }
         return method.getName().equals("run")
@@ -126,18 +158,27 @@ final class Background implements MethodInterceptor {
                 };
             }
             String name = method.get();
+            String taskId = Ulid.next();
             Map<String, Object> attrs = new LinkedHashMap<>();
-            attrs.put("task.system", "spring");
+            attrs.put("task.system", ASYNC);
             attrs.put("task.name", name);
+            attrs.put("task.id", taskId);
             attrs.put("code.origin", tracepanel.stacks().origin());
             String spanId = (String) trace.done("task.enqueue", name, attrs, Trace.nowMicros(), false).get("id");
-            Queued queued = new Queued(trace.id(), spanId, trace.attr("service.role"));
+            // Queued in Live until the executor runs it.
+            tracepanel.tasks().enqueued(ASYNC, taskId, name, null, trace.id(), spanId);
+            Queued queued = new Queued(trace.id(), spanId, trace.attr("service.role"), taskId);
             return () -> {
+                // Run inside a trace (a synchronous executor), it is a step of it: no task of its own in Live.
+                boolean inline = Tracepanel.current() != null;
+                boolean failed = true;
                 QUEUED.set(queued);
                 try {
                     runnable.run();
+                    failed = false;
                 } finally {
                     QUEUED.remove();
+                    if (inline) tracepanel.tasks().finished(ASYNC, taskId, failed ? "FAILURE" : "SUCCESS");
                 }
             };
         }

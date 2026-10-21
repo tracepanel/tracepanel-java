@@ -10,7 +10,7 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 
 /**
  * A Kafka producer interceptor (interceptor.classes): on the sending thread, the record of the publish under way
- * (Messages.publish) gets its traceparent and the trace that sent it.
+ * (Messages.publish) gets its traceparent, the trace that sent it, and its task's id in the console's Live.
  */
 public final class KafkaProducerHeaders implements ProducerInterceptor<Object, Object> {
     @Override
@@ -20,6 +20,7 @@ public final class KafkaProducerHeaders implements ProducerInterceptor<Object, O
             publish.destination(record.topic());
             record.headers().add(W3c.HEADER, publish.traceparent().getBytes(StandardCharsets.UTF_8));
             record.headers().add(Messages.SENT_BY, publish.sentBy().getBytes(StandardCharsets.UTF_8));
+            record.headers().add(Messages.TASK_ID, publish.taskId().getBytes(StandardCharsets.UTF_8));
         }
         return record;
     }
