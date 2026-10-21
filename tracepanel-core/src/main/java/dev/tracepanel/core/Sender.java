@@ -19,14 +19,18 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Sends the finished traces to the agent from a thread of its own, in batches: a hello line, then frames of a
- * 4-byte big-endian length and a JSON array of traces. A full queue drops a trace rather than slow a request down.
+ * 4-byte big-endian length and a JSON array of traces, or an object of task events, {"tasks": [...]} (an agent from
+ * before ignores it). A full queue drops a trace rather than slow a request down.
  */
 public final class Sender {
     private static final int PROTOCOL = 1;
@@ -35,14 +39,23 @@ public final class Sender {
     private static final long RETRY_AFTER_MS = 5000;
     private static final int CONNECT_TIMEOUT_MS = 500;
 
+    // What the app sends besides traces (live_tasks: task events), as its integrations say once they know.
+    private static final Set<String> SENDS = new CopyOnWriteArraySet<>();
+
     private final Config config;
     private final Agent agent;
-    private final BlockingQueue<Map<String, Object>> queue = new ArrayBlockingQueue<>(QUEUE_SIZE);
+    // Traces and task events (Event) in one queue: they reach the agent in the order they happened.
+    private final BlockingQueue<Object> queue = new ArrayBlockingQueue<>(QUEUE_SIZE);
     private Connection connection;
+    // What the connection's hello said the app sends: once it sends more, it connects again to say so.
+    private Set<String> said = Set.of();
     private long retryAt;
 
     /** A connection to the agent; `gone` once the agent closed it (its reader saw the end). */
     private record Connection(AutoCloseable channel, DataOutputStream out, AtomicBoolean gone) {}
+
+    /** A task event, sent in a frame of task events. */
+    private record Event(Map<String, Object> fields) {}
 
     public Sender(Config config, Agent agent) {
         this.config = config;
@@ -56,11 +69,21 @@ public final class Sender {
         queue.offer(trace);
     }
 
+    /** A task event (LiveTasks): dropped, as a trace is, when the queue is full. */
+    public void submitEvent(Map<String, Object> event) {
+        queue.offer(new Event(event));
+    }
+
+    /** Says in the hello that the app sends `name` (live_tasks) besides traces: an earlier connection says it anew. */
+    static void sends(String name) {
+        SENDS.add(name);
+    }
+
     private void run() {
-        List<Map<String, Object>> batch = new ArrayList<>(BATCH_SIZE);
+        List<Object> batch = new ArrayList<>(BATCH_SIZE);
         while (true) {
             try {
-                Map<String, Object> first = queue.poll(1, TimeUnit.SECONDS);
+                Object first = queue.poll(1, TimeUnit.SECONDS);
                 if (first == null) continue;
                 batch.add(first);
                 queue.drainTo(batch, BATCH_SIZE - 1);
@@ -84,22 +107,43 @@ public final class Sender {
         return connection() != null;
     }
 
-    private synchronized void send(List<Map<String, Object>> batch) {
+    /** The batch as frames, in its order: each run of traces a frame of traces, each run of events one of events. */
+    private synchronized void send(List<Object> batch) {
         Connection open = connection();
         if (open == null) return;
-        byte[] data = Json.write(batch).getBytes(StandardCharsets.UTF_8);
         try {
-            open.out().writeInt(data.length);
-            open.out().write(data);
+            List<Object> run = new ArrayList<>();
+            boolean events = false;
+            for (Object item : batch) {
+                boolean event = item instanceof Event;
+                if (event != events && !run.isEmpty()) {
+                    frame(open, run, events);
+                    run.clear();
+                }
+                events = event;
+                run.add(item instanceof Event found ? found.fields() : item);
+            }
+            frame(open, run, events);
             open.out().flush();
         } catch (IOException e) {
             close();
         }
     }
 
+    private static void frame(Connection open, List<Object> items, boolean events) throws IOException {
+        byte[] data = Json.write(events ? Map.of("tasks", items) : items).getBytes(StandardCharsets.UTF_8);
+        open.out().writeInt(data.length);
+        open.out().write(data);
+    }
+
     private Connection connection() {
         if (connection != null && connection.gone().get()) {
             // The agent went (a restart, a rebuild): a write would still go into this socket and be lost, unseen.
+            close();
+            retryAt = 0;
+        }
+        if (connection != null && !said.containsAll(SENDS)) {
+            // The app sends what its hello didn't say (its first task event): the agent hears a new hello.
             close();
             retryAt = 0;
         }
@@ -172,10 +216,13 @@ public final class Sender {
             // What the app offers the console, the one place it says so: the agent alone answers api/capabilities.
             // EXPLAIN runs on the app's database, answered at the app's own console (Console), not down here.
             hello.put("service", config.service());
-            // What its traces hold beyond the usual: a profile when one is asked for, the request's details.
+            // What its traces hold beyond the usual: a profile when one is asked for, the request's details; and what
+            // it sends besides them (live_tasks: task events).
             List<String> capabilities = new ArrayList<>();
             if (config.profileEnabled()) capabilities.add("profile");
             if (config.captureRequest()) capabilities.add("request");
+            Set<String> sends = Set.copyOf(SENDS);
+            capabilities.addAll(new TreeSet<>(sends));
             if (!capabilities.isEmpty()) hello.put("capabilities", capabilities);
             if (Jdbc.hasDatabases()) hello.put("console", List.of("explain"));
             out.write((Json.write(hello) + "\n").getBytes(StandardCharsets.UTF_8));
@@ -189,6 +236,7 @@ public final class Sender {
             }
             AtomicBoolean gone = new AtomicBoolean();
             watch(channel, in, gone);
+            said = sends;
             return new Connection(channel, new DataOutputStream(out), gone);
         } catch (Exception e) {
             return null;

@@ -15,6 +15,11 @@ public final class Messages {
      * the rest.
      */
     public static final String SENT_BY = "tracepanel-sent-by";
+    /**
+     * The id the message's task has in the console's Live from its publish on: the receiving app's task events say
+     * it too, so the task queued is the one that runs.
+     */
+    public static final String TASK_ID = "tracepanel-task-id";
 
     // The publish under way on this thread: the broker client's hook, deeper in the same call, adds its traceparent.
     private static final ThreadLocal<Publish> PUBLISHING = new ThreadLocal<>();
@@ -44,6 +49,7 @@ public final class Messages {
         private final String spanId = Ulid.next();
         private final String parentId;
         private final long start = Trace.nowMicros();
+        private String taskId;
         private String destination = "";
         private final Map<String, Object> extra = new LinkedHashMap<>();
 
@@ -73,6 +79,12 @@ public final class Messages {
             return W3c.outgoing(trace, spanId);
         }
 
+        /** The task id its message carries (TASK_ID): once it does, the publish is the task's enqueue in Live. */
+        public String taskId() {
+            if (taskId == null) taskId = Ulid.next();
+            return taskId;
+        }
+
         /** The client took the message: the thread sends no other now. The span ends with `sent` or `failed`. */
         public void handedOver() {
             if (PUBLISHING.get() == this) PUBLISHING.remove();
@@ -97,20 +109,32 @@ public final class Messages {
             if (error != null) attrs.put("error.type", error.getClass().getSimpleName());
             attrs.put("code.origin", origin);
             trace.done(system, "publish " + destination, attrs, start, error != null, spanId, parentId);
+            LiveTasks tasks = LiveTasks.get();
+            if (error == null && taskId != null && tasks != null) {
+                // Named after where it goes until a listener takes it: the listener's method names it then.
+                tasks.enqueued(system, taskId, destination, destination, trace.id(), spanId);
+            }
         }
     }
 
     /**
      * A message received: a task trace of its own, `name` the destination until the listener names it, linked to the
-     * publish by its traceparent. Null when Tracepanel is off, or the thread already works for a trace.
+     * publish by its traceparent, and a task running in the console's Live from now until `done`. `taskId` is the
+     * one its message carries (TASK_ID), else the broker's for it (null: a new one); `retries`, how many times it
+     * was delivered before. Null when Tracepanel is off, or the thread already works for a trace.
      */
-    public static Trace receive(String system, String destination, String traceparent, String sentBy, Map<String, Object> attrs) {
+    public static Trace receive(String system, String destination, String traceparent, String sentBy, String taskId, long retries,
+            Map<String, Object> attrs) {
         Tracepanel tracepanel = Tracepanel.get();
         if (tracepanel == null || Tracepanel.current() != null) return null;
+        String id = taskId == null || taskId.isEmpty() ? Ulid.next() : taskId;
         Map<String, Object> all = new LinkedHashMap<>(attrs);
         all.put("task.system", system);
         all.put("task.name", destination);
+        all.put("task.id", id);
         all.put("task.queue", destination);
+        all.put("task.worker", tracepanel.tasks().worker());
+        all.put("task.retries", retries);
         all.put("messaging.system", system);
         all.put("messaging.operation", "process");
         all.put("messaging.destination.name", destination);
@@ -123,18 +147,21 @@ public final class Messages {
         all.put("task.trigger", linked || caller.containsKey("w3c.parent_span_id") ? "message" : "other");
         Trace trace = tracepanel.begin("task", "task.run", destination, all);
         if (linked) trace.link("sent_by", sender[0], sender[1]);
+        tracepanel.tasks().started(system, id, destination, destination, retries);
         return trace;
     }
 
     /** The listener that handles the message names its trace: Class.method. */
     public static void handledBy(String name) {
         Trace trace = Tracepanel.current();
-        if (trace == null || !"process".equals(trace.attr("messaging.operation"))) return;
+        Tracepanel tracepanel = Tracepanel.get();
+        if (trace == null || tracepanel == null || !"process".equals(trace.attr("messaging.operation"))) return;
         trace.name(name);
         trace.attr("task.name", name);
+        tracepanel.tasks().named(String.valueOf(trace.attr("task.id")), name);
     }
 
-    /** The message was handled: its trace goes to the agent, failed if `error` isn't null. */
+    /** The message was handled: its trace goes to the agent, failed if `error` isn't null, and it leaves Live. */
     public static void done(Trace trace, Throwable error) {
         Tracepanel tracepanel = Tracepanel.get();
         if (trace == null || tracepanel == null) return;
@@ -143,5 +170,7 @@ public final class Messages {
             trace.failed();
         }
         tracepanel.finish(trace);
+        tracepanel.tasks().finished(String.valueOf(trace.attr("task.system")), String.valueOf(trace.attr("task.id")),
+                error == null ? "SUCCESS" : "FAILURE");
     }
 }

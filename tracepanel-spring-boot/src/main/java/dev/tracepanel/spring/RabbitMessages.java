@@ -23,7 +23,8 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 /**
  * RabbitMQ through Spring AMQP: each message a RabbitTemplate publishes is a rabbitmq span (publish orders) of the
  * trace that sent it, its headers carrying a traceparent; each message a listener container delivers is a task
- * trace, linked to the publish by it and named after the @RabbitListener method that handles it.
+ * trace, linked to the publish by it and named after the @RabbitListener method that handles it. In the console's
+ * Live, a message published is queued and a message delivered runs (system rabbitmq) until its listener returns.
  */
 final class RabbitMessages {
     private RabbitMessages() {}
@@ -81,6 +82,7 @@ final class RabbitMessages {
             if (properties.getHeader(W3c.HEADER) == null) {
                 properties.setHeader(W3c.HEADER, publish.traceparent());
                 properties.setHeader(Messages.SENT_BY, publish.sentBy());
+                properties.setHeader(Messages.TASK_ID, publish.taskId());
             }
             return message;
         }
@@ -98,8 +100,10 @@ final class RabbitMessages {
             Object traceparent = properties.getHeader(W3c.HEADER);
             String queue = properties.getConsumerQueue() != null ? properties.getConsumerQueue() : properties.getReceivedRoutingKey();
             Object sentBy = properties.getHeader(Messages.SENT_BY);
+            Object taskId = properties.getHeader(Messages.TASK_ID);
             Trace trace = Messages.receive("rabbitmq", queue, traceparent == null ? null : traceparent.toString(),
-                    sentBy == null ? null : sentBy.toString(), attrs);
+                    sentBy == null ? null : sentBy.toString(), taskId != null ? taskId.toString() : properties.getMessageId(),
+                    retries(properties), attrs);
             if (trace == null) return invocation.proceed();
             try {
                 Object result = invocation.proceed();
@@ -109,6 +113,12 @@ final class RabbitMessages {
                 Messages.done(trace, error);
                 throw error;
             }
+        }
+
+        /** How many times it was delivered before: a quorum queue counts them, else it was at least once if redelivered. */
+        private static long retries(MessageProperties properties) {
+            if (properties.getHeader("x-delivery-count") instanceof Number count) return count.longValue();
+            return Boolean.TRUE.equals(properties.getRedelivered()) ? 1 : 0;
         }
     }
 }

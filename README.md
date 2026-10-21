@@ -93,6 +93,9 @@ off.
 - Work besides requests: an `@Async` method's run is a task, linked to the
   request that queued it; an `@Scheduled` method's run and a
   `CommandLineRunner`'s are jobs.
+- Tasks in flight, on the Tasks page's Now: `@Async` and `@Scheduled`
+  runs and the messages your listeners handle, queued and running, with
+  your app as their worker.
 - The signed-in user: the principal's name from Spring Security, when the
   app has it, or the user your code names with
   `Tracepanel.setUser(id, username)`. The username stays on your machine.
@@ -242,7 +245,9 @@ The same environment variables as the other Tracepanel SDKs:
 It runs the tests on Spring Boot 4 and on 3.5, and on Ktor. The tests of
 MongoDB, Redis, Kafka and RabbitMQ need a server of each:
 `TEST_MONGODB_URI=mongodb://127.0.0.1:27017/test`, `TEST_REDIS_PORT=6379`,
-`TEST_KAFKA_BOOTSTRAP=localhost:9092` and `TEST_RABBITMQ_PORT=5672`. After
+`TEST_KAFKA_BOOTSTRAP=localhost:9092` and `TEST_RABBITMQ_PORT=5672`. The
+tests of the console's Live with the real agent need its binary:
+`TEST_AGENT_BIN=/path/to/tracepanel-agent`. After
 changing `agentVersion` in `gradle.properties`, `./gradlew agentIntegrity`
 writes the checksums of that version's downloads.
 

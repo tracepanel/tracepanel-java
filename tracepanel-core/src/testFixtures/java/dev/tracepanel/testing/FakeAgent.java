@@ -23,6 +23,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class FakeAgent {
     public static final List<Map<String, Object>> TRACES = new CopyOnWriteArrayList<>();
+    /** The task events the SDK sent, in their order. */
+    public static final List<Map<String, Object>> TASK_EVENTS = new CopyOnWriteArrayList<>();
     public static final List<String> CONSOLE_CALLS = new CopyOnWriteArrayList<>();
     /** Each connection's hello line, as the SDK sent it. */
     public static final List<String> HELLOS = new CopyOnWriteArrayList<>();
@@ -91,7 +93,10 @@ public final class FakeAgent {
             while (true) {
                 byte[] frame = new byte[in.readInt()];
                 in.readFully(frame);
-                TRACES.addAll(JsonPath.parse(new String(frame, StandardCharsets.UTF_8)).read("$", List.class));
+                String json = new String(frame, StandardCharsets.UTF_8);
+                // A frame of task events is an object, {"tasks": [...]}; a frame of traces, an array.
+                if (json.startsWith("{")) TASK_EVENTS.addAll(JsonPath.parse(json).read("$.tasks", List.class));
+                else TRACES.addAll(JsonPath.parse(json).read("$", List.class));
             }
         } catch (IOException e) {
             // The SDK closed it.
@@ -108,6 +113,18 @@ public final class FakeAgent {
             Thread.sleep(20);
         }
         throw new AssertionError("no trace of " + path);
+    }
+
+    /** The task events of the task with `id` in their order, once one of each of `kinds` came (finished, ...). */
+    public static List<Map<String, Object>> taskEvents(String id, String... kinds) throws InterruptedException {
+        for (int waited = 0; waited < 5000; waited += 20) {
+            List<Map<String, Object>> events = TASK_EVENTS.stream().filter(event -> id.equals(event.get("id"))).toList();
+            if (List.of(kinds).stream().allMatch(kind -> events.stream().anyMatch(event -> kind.equals(event.get("event"))))) {
+                return events;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("not all of " + List.of(kinds) + " of task " + id + "; sent: " + TASK_EVENTS);
     }
 
     /** The trace named so, once the SDK sent it. */

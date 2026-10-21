@@ -7,6 +7,7 @@ import dev.tracepanel.integrations.KafkaProducerHeaders;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +28,8 @@ import org.springframework.messaging.Message;
 /**
  * Kafka through Spring for Apache Kafka: each record a KafkaTemplate sends is a kafka span (publish orders) of the
  * trace that sent it, its headers carrying a traceparent; each record a listener receives is a task trace, linked to
- * the publish by it and named after the @KafkaListener method that handles it.
+ * the publish by it and named after the @KafkaListener method that handles it. In the console's Live, a record sent
+ * is queued and a record received runs (system kafka) until its listener returns.
  */
 final class KafkaMessages {
     private KafkaMessages() {}
@@ -86,8 +88,17 @@ final class KafkaMessages {
 
     /** Each record a listener container hands to its listener: a task trace, from before the listener to after it. */
     static final class Records implements RecordInterceptor<Object, Object> {
+        // The records whose last delivery failed, by task id, with how many times: the error handler's redelivery of
+        // one is its next attempt. The oldest go past a bound (a record sent to a dead-letter topic never returns).
+        private static final int FAILURES_KEPT = 1000;
         private final ThreadLocal<Trace> receiving = new ThreadLocal<>();
         private final ThreadLocal<Exception> failed = new ThreadLocal<>();
+        private final Map<String, Long> failures = Collections.synchronizedMap(new LinkedHashMap<>() {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+                return size() > FAILURES_KEPT;
+            }
+        });
 
         @Override
         public ConsumerRecord<Object, Object> intercept(ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
@@ -96,16 +107,31 @@ final class KafkaMessages {
             attrs.put("messaging.kafka.partition", record.partition());
             attrs.put("messaging.kafka.offset", record.offset());
             Header sentBy = record.headers().lastHeader(Messages.SENT_BY);
+            String id = taskId(record);
             Trace trace = Messages.receive("kafka", record.topic(),
                     header == null ? null : new String(header.value(), StandardCharsets.UTF_8),
-                    sentBy == null ? null : new String(sentBy.value(), StandardCharsets.UTF_8), attrs);
+                    sentBy == null ? null : new String(sentBy.value(), StandardCharsets.UTF_8), id,
+                    failures.getOrDefault(id, 0L), attrs);
             if (trace != null) receiving.set(trace);
             return record;
+        }
+
+        /** The id its sender gave it in Live, else where it is: topic, partition and offset name one record. */
+        private static String taskId(ConsumerRecord<Object, Object> record) {
+            Header header = record.headers().lastHeader(Messages.TASK_ID);
+            if (header != null) return new String(header.value(), StandardCharsets.UTF_8);
+            return record.topic() + "-" + record.partition() + "@" + record.offset();
+        }
+
+        @Override
+        public void success(ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
+            failures.remove(taskId(record));
         }
 
         @Override
         public void failure(ConsumerRecord<Object, Object> record, Exception exception, Consumer<Object, Object> consumer) {
             failed.set(exception);
+            failures.merge(taskId(record), 1L, Long::sum);
         }
 
         @Override

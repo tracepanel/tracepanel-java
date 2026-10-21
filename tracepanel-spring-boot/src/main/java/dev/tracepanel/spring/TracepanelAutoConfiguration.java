@@ -8,6 +8,8 @@ import java.lang.annotation.Annotation;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.SpringBootVersion;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -70,6 +72,23 @@ public class TracepanelAutoConfiguration {
                 return Background.traced(method, type);
             }
         };
+    }
+
+    /**
+     * The app instance as a worker in the console's Live once it is up, when it runs tasks (@Async, @Scheduled, a
+     * listener): its heartbeat starts, so the console lists it before any task runs.
+     */
+    @Bean
+    static Worker tracepanelWorker() {
+        return new Worker();
+    }
+
+    static final class Worker implements ApplicationListener<ApplicationReadyEvent> {
+        @Override
+        public void onApplicationEvent(ApplicationReadyEvent event) {
+            Tracepanel tracepanel = Tracepanel.get();
+            if (tracepanel != null) tracepanel.tasks().start();
+        }
     }
 
     /** The executor @Async methods run on links each task to the trace that queued it; an app's own decorator wins. */

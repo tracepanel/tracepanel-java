@@ -19,6 +19,18 @@
   `HttpSession` is: each session's properties under `session.*`, their
   secrets masked. A deferred session (`io.ktor.server.sessions.deferred`)
   is not read for it.
+- The console's Live on the Tasks page (Now) for Spring apps, as for
+  Celery, RQ and Dramatiq ones: task events tell the agent what is queued
+  and what runs before its trace exists. An `@Async` method's run is
+  queued from its `task.enqueue` on, then runs (system `spring`); an
+  `@Scheduled` method's runs (`scheduled`); a message a `@KafkaListener` or
+  a `@RabbitListener` handles runs (`kafka`, `rabbitmq`), queued from its
+  publish when a `KafkaTemplate` or a `RabbitTemplate` in a trace sent it,
+  with the same id on both sides. Each app instance is a worker,
+  `service@host`, with a heartbeat every 30 seconds while it is up, so a
+  task whose process went leaves the list. A record or a message that
+  failed counts its attempts when it comes again. The hello says
+  `live_tasks` once the app has any of them.
 - The console's Request tab for Spring and Ktor requests, as for Python
   ones: a trace holds its request's headers, query, cookies and body, the
   session (Spring), and the answer's headers, under the same names and

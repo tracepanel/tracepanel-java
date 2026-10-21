@@ -1,19 +1,25 @@
 package dev.tracepanel.spring;
 
+import dev.tracepanel.core.LiveTasks;
 import dev.tracepanel.core.Messages;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 
-/** The @KafkaListener or @RabbitListener method that handles a message names its trace: Class.method. */
+/**
+ * The @KafkaListener or @RabbitListener method that handles a message names its trace: Class.method. An app with
+ * one sends task events (the messages it handles), and says so from the start.
+ */
 final class Listeners implements MethodInterceptor {
-    private static final List<Class<? extends Annotation>> ANNOTATIONS = annotations(
-            "org.springframework.kafka.annotation.KafkaListener", "org.springframework.amqp.rabbit.annotation.RabbitListener");
+    // Each listener annotation the app has, with the system of the messages it handles.
+    private static final Map<Class<? extends Annotation>, String> ANNOTATIONS = annotations(Map.of(
+            "org.springframework.kafka.annotation.KafkaListener", "kafka",
+            "org.springframework.amqp.rabbit.annotation.RabbitListener", "rabbitmq"));
 
     @Override
     public Object invoke(MethodInvocation invocation) throws Throwable {
@@ -24,22 +30,25 @@ final class Listeners implements MethodInterceptor {
     }
 
     static boolean traced(Method method, Class<?> type) {
-        for (Class<? extends Annotation> annotation : ANNOTATIONS) {
-            if (AnnotatedElementUtils.hasAnnotation(method, annotation)) return true;
+        for (Map.Entry<Class<? extends Annotation>, String> annotation : ANNOTATIONS.entrySet()) {
+            if (AnnotatedElementUtils.hasAnnotation(method, annotation.getKey())) {
+                LiveTasks.expect(annotation.getValue());
+                return true;
+            }
         }
         return false;
     }
 
     @SuppressWarnings("unchecked")
-    private static List<Class<? extends Annotation>> annotations(String... names) {
-        List<Class<? extends Annotation>> found = new ArrayList<>();
-        for (String name : names) {
+    private static Map<Class<? extends Annotation>, String> annotations(Map<String, String> names) {
+        Map<Class<? extends Annotation>, String> found = new LinkedHashMap<>();
+        names.forEach((name, system) -> {
             try {
-                found.add((Class<? extends Annotation>) Class.forName(name, false, Listeners.class.getClassLoader()));
+                found.put((Class<? extends Annotation>) Class.forName(name, false, Listeners.class.getClassLoader()), system);
             } catch (ClassNotFoundException | LinkageError e) {
                 // Not in the app: nothing of it to name.
             }
-        }
+        });
         return found;
     }
 }

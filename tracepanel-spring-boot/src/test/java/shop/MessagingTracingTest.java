@@ -59,4 +59,38 @@ class MessagingTracingTest {
             assertThat(sent).extracting(span -> span.get("id")).contains(link.get("span_id"));
         });
     }
+
+    @ParameterizedTest
+    @CsvSource({"kafka, kafka, onKafkaBook", "rabbit, rabbitmq, onRabbitBook"})
+    @SuppressWarnings("unchecked")
+    void a_message_sent_is_queued_in_live_and_runs_named_by_its_listener_until_it_returns(String path, String system,
+            String listener) throws Exception {
+        HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/publish/" + path)).build(),
+                HttpResponse.BodyHandlers.ofString());
+        Map<String, Object> received = FakeAgent.trace("Listeners." + listener);
+        Map<String, Object> attrs = (Map<String, Object>) received.get("attrs");
+        String id = (String) attrs.get("task.id");
+        String worker = (String) attrs.get("task.worker");
+        Map<String, Object> publish = ((List<Map<String, Object>>) received.get("links")).get(0);
+        List<Map<String, Object>> events = FakeAgent.taskEvents(id, "enqueued", "finished");
+        // The sender's enqueued and the listener's events come from two threads: either may reach the agent first.
+        List<Map<String, Object>> enqueued = events.stream().filter(event -> "enqueued".equals(event.get("event"))).toList();
+        List<Map<String, Object>> ran = events.stream().filter(event -> !"enqueued".equals(event.get("event"))).toList();
+
+        assertThat(worker).matches("[^@]+@.+");
+
+        assertThat(enqueued.stream().map(LiveTasksTest::timeless).toList()).isEqualTo(List.of(
+                Map.of("event", "enqueued", "system", system, "id", id, "name", "books", "queue", "books",
+                        "trace_id", publish.get("trace_id"), "span_id", publish.get("span_id"))));
+
+        // Named after where it goes until its listener takes it; then after the listener, from the same start.
+        assertThat(ran.stream().map(LiveTasksTest::timeless).toList()).isEqualTo(List.of(
+                Map.of("event", "started", "system", system, "id", id, "name", "books", "queue", "books", "worker", worker,
+                        "retries", 0),
+                Map.of("event", "started", "system", system, "id", id, "name", "Listeners." + listener, "queue", "books",
+                        "worker", worker, "retries", 0),
+                Map.of("event", "finished", "system", system, "id", id, "worker", worker, "state", "SUCCESS")));
+
+        assertThat(ran.get(0).get("time")).isEqualTo(ran.get(1).get("time"));
+    }
 }
