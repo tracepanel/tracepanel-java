@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 (2026-10-21)
+
+The SDK downloads `tracepanel-agent` 0.4.1 the first time: its console names a
+Java app's handler as one, a busy worker no longer reads idle between tasks,
+and log records carry their date.
 
 ### Changed
 
