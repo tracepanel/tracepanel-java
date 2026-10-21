@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-21)
+
+The SDK downloads `tracepanel-agent` 0.4.0 the first time: an app says what it
+offers the console in its hello, and the console shows its tasks in flight.
 
 ### Added
 
@@ -72,6 +75,12 @@
 
 - Spring and Ktor no longer hold a streamed HTML page whole until it ends:
   it goes out as the app writes it.
+- What the app offers the console is said once, in the hello to the agent:
+  its service, and EXPLAIN (answered at the app's own console) once it has
+  a database. The console's `api/capabilities` comes from the agent, which
+  offers EXPLAIN only through the app's console. The app's console no longer
+  answers it itself, and connects to the agent first, so the agent has heard
+  the hello.
 
 ### Fixed
 
@@ -79,20 +88,10 @@
   as text for the widget, which broke it.
 - A second app in the same process that installs Tracepanel (two Ktor
   servers) no longer records each log twice.
-
 - The first trace after the agent restarted was lost (the panel said
   "Trace not found"): the old connection still took the write on this side.
   The SDK now watches the connection for its end, and connects again
   before the next batch.
-
-### Changed
-
-- What the app offers the console is said once, in the hello to the agent:
-  its service, and EXPLAIN (answered at the app's own console) once it has
-  a database. The console's `api/capabilities` comes from the agent, which
-  offers EXPLAIN only through the app's console. The app's console no longer
-  answers it itself, and connects to the agent first, so the agent has heard
-  the hello.
 
 ## 0.3.2 (2026-10-19)
 
