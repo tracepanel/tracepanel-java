@@ -6,6 +6,8 @@ plugins {
     kotlin("plugin.spring") version "2.3.21" apply false
     // Maven Central: the Central Portal's upload, the POM it requires and the signatures.
     id("com.vanniktech.maven.publish") version "0.37.0" apply false
+    // A Sigstore signature of each file to Maven Central, next to its GPG one: the release workflow's identity, no key.
+    id("dev.sigstore.sign") version "2.3.0" apply false
 }
 
 allprojects {
@@ -82,5 +84,12 @@ subprojects {
                 developerConnection = "scm:git:ssh://git@github.com/tracepanel/tracepanel-java.git"
             }
         }
+    }
+
+    // With -PsigstoreSign, each published file also gets a .sigstore.json: a Sigstore bundle, signed keyless with the
+    // OIDC token of the GitHub Actions job (ORG_GRADLE_PROJECT_sigstoreSign in the release workflow). Elsewhere it
+    // would ask for a browser sign-in, so a build without it signs nothing in Sigstore.
+    if (providers.gradleProperty("sigstoreSign").isPresent) {
+        apply(plugin = "dev.sigstore.sign")
     }
 }

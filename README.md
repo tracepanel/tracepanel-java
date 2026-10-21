@@ -236,6 +236,31 @@ The same environment variables as the other Tracepanel SDKs:
 | `TRACEPANEL_LONG_TRANSACTION_MS` | `500` | a long transaction |
 | `TRACEPANEL_LARGE_RESULT_ROWS` | `1000` | a query without a LIMIT that read too many rows |
 
+## Verify a release
+
+Each release after 0.4.1 says where its files came from. Every jar, POM
+and Gradle module that went to Maven Central is attested by the release
+workflow that built it from a tagged commit. To check a downloaded jar with
+the GitHub CLI:
+
+```bash
+gh attestation verify tracepanel-core-VERSION.jar --owner tracepanel
+```
+
+Each file on Maven Central also has a Sigstore signature next to its GPG one:
+the same name with `.sigstore.json` added. Download both and check them with
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+
+```bash
+cosign verify-blob tracepanel-core-VERSION.jar \
+  --bundle tracepanel-core-VERSION.jar.sigstore.json \
+  --certificate-identity https://github.com/tracepanel/tracepanel-java/.github/workflows/release.yml@refs/tags/VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Both pass only for a file that this repository's release workflow built and
+published from that version's tag.
+
 ## Build
 
 ```bash
