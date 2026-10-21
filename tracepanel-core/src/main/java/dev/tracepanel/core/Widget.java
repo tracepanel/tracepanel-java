@@ -1,8 +1,12 @@
 package dev.tracepanel.core;
 
+import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -17,7 +21,48 @@ public final class Widget {
     /** Read by the page across origins: the API's CORS responses expose them. */
     public static final String EXPOSED = "Tracepanel-Id, Tracepanel-Url, Server-Timing";
 
+    /**
+     * The requests that answered a page's navigation with a redirect, by id, on the way to the page the widget will see:
+     * its panel lists them before that page (a form's POST, then the page it redirected to).
+     */
+    public static final String REDIRECTS = "tracepanel_redirect";
+    /** How many redirects in a row are kept: a loop of them doesn't grow the cookie without end. */
+    private static final int MAX_REDIRECTS = 5;
+
     private Widget() {}
+
+    /** Whether the browser asked for a page to show (a link, a form): not fetch() or an image. */
+    public static boolean navigated(String fetchMode, String accept) {
+        return fetchMode != null ? fetchMode.equals("navigate") : accept != null && accept.contains("text/html");
+    }
+
+    /**
+     * The Set-Cookie naming the request `id` too, for a redirect that answers a page's navigation; null otherwise.
+     * `cookies` is the request's Cookie header, which names the redirects before this one.
+     */
+    public static String redirectCookie(String id, int status, String fetchMode, String accept, String cookies) {
+        if (status < 300 || status >= 400 || !navigated(fetchMode, accept)) return null;
+        List<String> ids = new ArrayList<>();
+        for (String before : sentRedirects(cookies).split(",")) if (!before.isEmpty()) ids.add(before);
+        ids.add(id);
+        String value = String.join(",", ids.subList(Math.max(0, ids.size() - MAX_REDIRECTS), ids.size()));
+        return REDIRECTS + "=" + URLEncoder.encode(value, StandardCharsets.UTF_8) + "; Max-Age=30; Path=/; SameSite=Lax";
+    }
+
+    /** The redirect cookie's ids as the request sent them, decoded; none for a value that can't be. */
+    private static String sentRedirects(String cookies) {
+        if (cookies == null) return "";
+        for (String part : cookies.split(";")) {
+            int equals = part.indexOf('=');
+            if (equals < 0 || !part.substring(0, equals).strip().equals(REDIRECTS)) continue;
+            try {
+                return URLDecoder.decode(part.substring(equals + 1).strip(), StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                return "";
+            }
+        }
+        return "";
+    }
 
     /** The headers for a response of `trace`; the console at `origin` + the prefix. */
     public static Map<String, String> headers(Trace trace, String origin, String prefix) {

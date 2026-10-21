@@ -1,11 +1,17 @@
 package shop;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import lib.Shelf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.servlet.view.RedirectView;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,6 +42,28 @@ public class BookController {
     public String page() {
         return "<!doctype html><html><head><title>Books</title></head><body>"
                 + db.queryForObject("SELECT COUNT(*) FROM book", Integer.class) + " books</body></html>";
+    }
+
+    /**
+     * Counted by library code as the answer is written, not by the handler: on the async dispatch, where no code of the
+     * app's runs (its filters only run on the request's own).
+     */
+    @GetMapping("/shelves/count")
+    public Callable<Shelf> count() {
+        return () -> new Shelf(db);
+    }
+
+    /** A form's POST that redirects to the page, as "redirect:" does (sendRedirect). */
+    @PostMapping("/shelves")
+    public RedirectView shelve() {
+        db.queryForObject("SELECT COUNT(*) FROM book", Integer.class);
+        return new RedirectView("/page");
+    }
+
+    /** A redirect the handler answers itself, without sendRedirect. */
+    @PostMapping("/shelves/other")
+    public ResponseEntity<Void> shelveOther() {
+        return ResponseEntity.status(HttpStatus.SEE_OTHER).location(URI.create("/page")).build();
     }
 
     @GetMapping("/missing")

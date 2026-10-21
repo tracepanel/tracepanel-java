@@ -24,6 +24,21 @@ public final class Stacks {
             "org.h2.", "org.hsqldb.", "org.apache.", "org.eclipse.", "io.netty.", "reactor.", "io.micrometer.",
             "ch.qos.logback.", "org.slf4j.", "org.thymeleaf.", "com.fasterxml.", "org.jboss.", "net.bytebuddy.",
             "org.junit.", "dev.tracepanel.");
+    /**
+     * What makes a query rather than asks for one: the JVM's plumbing, the ORMs and their repositories, the pools and the
+     * drivers, Tracepanel itself. Past these is the library code that wanted the rows (Jackson writing a lazy relation, a
+     * template, Spring Security loading a user).
+     */
+    private static final List<String> QUERY_LAYERS = List.of(
+            "java.", "javax.", "jakarta.", "jdk.", "sun.", "com.sun.", "kotlin.", "kotlinx.", "dev.tracepanel.",
+            "net.bytebuddy.", "org.hibernate.", "org.springframework.jdbc.", "org.springframework.orm.",
+            "org.springframework.dao.", "org.springframework.transaction.", "org.springframework.aop.",
+            "org.springframework.cglib.", "org.springframework.data.jpa.", "org.springframework.data.jdbc.",
+            "org.springframework.data.relational.", "org.springframework.data.repository.",
+            "org.springframework.data.projection.", "org.springframework.data.util.", "org.jetbrains.exposed.",
+            "org.jooq.", "org.apache.ibatis.", "org.mybatis.", "com.zaxxer.", "org.apache.tomcat.jdbc.",
+            "com.mchange.", "org.postgresql.", "com.mysql.", "org.mariadb.", "org.h2.", "org.hsqldb.", "oracle.jdbc.",
+            "com.microsoft.sqlserver.", "org.sqlite.", "org.apache.derby.", "com.ibm.db2.", "net.sourceforge.jtds.");
     private static final String[] SOURCE_ROOTS = {"src/main/java", "src/main/kotlin", "src/main/groovy", "src/test/java"};
     private static final int CONTEXT_LINES = 5;
 
@@ -59,6 +74,24 @@ public final class Stacks {
                 .walk(frames -> frames.filter(frame -> inApp(frame.getClassName()) && frame.getLineNumber() > 0).findFirst())
                 .map(frame -> where(frame.getClassName(), frame.getFileName(), frame.getLineNumber(), frame.getMethodName()))
                 .orElse(null);
+    }
+
+    /**
+     * For a query no code of the app's made (code.origin is null): the library code that asked for it, the first frame
+     * past the query layers, as "path:line in method"; null when there is none.
+     */
+    public String caller() {
+        return StackWalker.getInstance()
+                .walk(frames -> frames.filter(frame -> !queryLayer(frame.getClassName()) && !generated(frame.getClassName())
+                                && frame.getLineNumber() > 0)
+                        .findFirst())
+                .map(frame -> where(frame.getClassName(), frame.getFileName(), frame.getLineNumber(), frame.getMethodName()))
+                .orElse(null);
+    }
+
+    static boolean queryLayer(String className) {
+        for (String layer : QUERY_LAYERS) if (className.startsWith(layer)) return true;
+        return false;
     }
 
     /** The app's frame nearest to the call, by a predicate on the class too (a log's own logger frames skipped). */

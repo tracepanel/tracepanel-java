@@ -114,6 +114,7 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
     if (present("ch.qos.logback.classic.LoggerContext")) LogbackRecorder.install(tracepanel)
     if (present("org.apache.logging.log4j.core.LoggerContext")) Log4j2Recorder.install(tracepanel)
     val prefix = config.prefix()
+    val sessions = present("io.ktor.server.sessions.SessionsKt")
 
     // The route that matched, once the routing found it: the trace's name. Its handler, a lambda with no name of its
     // own, is a view span named by the route (GET /books/{id}): what it runs, on any thread, goes under it.
@@ -186,6 +187,8 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
                     .flatMap { (name, values) -> values.map { AbstractMap.SimpleEntry(name, it) } }
                 RequestDetails.responseHeaders(headers).forEach(trace::attr)
                 call.attributes.getOrNull(BODY)?.attrs(call.request.headers[HttpHeaders.ContentType])?.forEach(trace::attr)
+                // The session as the call left it (the Sessions plugin's), as Spring's HttpSession is recorded.
+                if (sessions) runCatching { RequestDetails.session(sessionItems(call)) }.getOrNull()?.forEach(trace::attr)
             }
             tracepanel.finish(trace)
         }
@@ -220,9 +223,17 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
         if (call.request.headers[HttpHeaders.Origin] != null) {
             call.response.headers.append(HttpHeaders.AccessControlExposeHeaders, Widget.EXPOSED, safeOnly = false)
         }
+        val status = (content.status ?: call.response.status() ?: HttpStatusCode.OK).value
+        // A redirect that answers a page's navigation (a form's POST): the page it leads to lists this call first.
+        val redirect = Widget.redirectCookie(
+            trace.id(), status, call.request.headers["Sec-Fetch-Mode"], call.request.headers[HttpHeaders.Accept],
+            call.request.headers.getAll(HttpHeaders.Cookie)?.joinToString("; "),
+        )
+        if (redirect != null && call.response.headers.values(HttpHeaders.SetCookie).none { it.startsWith(Widget.REDIRECTS + "=") }) {
+            call.response.headers.append(HttpHeaders.SetCookie, redirect, safeOnly = false)
+        }
         val type = content.contentType ?: return@on
         if (!type.match(ContentType.Text.Html)) return@on
-        val status = (content.status ?: call.response.status() ?: HttpStatusCode.OK).value
         val method = call.request.httpMethod.value
         val decorate = { html: String -> Widget.decorate(html, trace, method, status, prefix, runtime) }
         // A page written as it is made goes out so, the widget put in as it passes; one compressed or of a declared

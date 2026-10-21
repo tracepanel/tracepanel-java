@@ -104,6 +104,81 @@ class SpringTracingTest {
         assertThat(page.headers().firstValue("Content-Length")).hasValue(String.valueOf(page.body().getBytes().length));
     }
 
+    private HttpResponse<String> post(String path, String... headers) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                .POST(HttpRequest.BodyPublishers.ofString("name=fiction")).header("Content-Type", "application/x-www-form-urlencoded");
+        if (headers.length > 0) request.headers(headers);
+        return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The test's request (X-Test: `name`) as the agent got it. */
+    private static Map<String, Object> traceNamed(String name) throws InterruptedException {
+        for (int waited = 0; waited < 5000; waited += 20) {
+            for (Map<String, Object> trace : FakeAgent.TRACES) {
+                if (name.equals(((Map<?, ?>) trace.get("attrs")).get("http.request.header.x_test"))) return trace;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("no trace of " + name);
+    }
+
+    @Test
+    void a_form_s_post_that_redirects_a_page_s_navigation_names_itself_in_the_redirect_cookie() throws Exception {
+        books();
+        HttpResponse<String> sent = post("/shelves", "Sec-Fetch-Mode", "navigate", "X-Test", "redirect-1");
+        HttpResponse<String> again = post("/shelves", "Sec-Fetch-Mode", "navigate", "X-Test", "redirect-2",
+                "Cookie", "tracepanel_redirect=01K7B2Y7Q8M3E5R9T1V4W6X8Z0");
+        HttpResponse<String> other = post("/shelves/other", "Accept", "text/html,application/xhtml+xml", "X-Test", "redirect-3");
+        HttpResponse<String> fetched = post("/shelves", "Sec-Fetch-Mode", "cors", "X-Test", "redirect-4");
+        String first = (String) traceNamed("redirect-1").get("id");
+        String second = (String) traceNamed("redirect-2").get("id");
+        String third = (String) traceNamed("redirect-3").get("id");
+
+        assertThat(sent.statusCode()).isEqualTo(302);
+        assertThat(sent.headers().allValues("Set-Cookie"))
+                .contains("tracepanel_redirect=" + first + "; Max-Age=30; Path=/; SameSite=Lax");
+        assertThat(sent.headers().firstValue("Tracepanel-Id")).hasValue(first);
+        assertThat(sent.headers().firstValue("Server-Timing").orElse("")).contains("desc=\"1 queries\"");
+
+        assertThat(again.headers().allValues("Set-Cookie"))
+                .contains("tracepanel_redirect=01K7B2Y7Q8M3E5R9T1V4W6X8Z0%2C" + second + "; Max-Age=30; Path=/; SameSite=Lax");
+
+        assertThat(other.statusCode()).isEqualTo(303);
+        assertThat(other.headers().allValues("Set-Cookie"))
+                .containsExactly("tracepanel_redirect=" + third + "; Max-Age=30; Path=/; SameSite=Lax");
+
+        assertThat(fetched.statusCode()).isEqualTo(302);
+        assertThat(fetched.headers().allValues("Set-Cookie")).noneMatch(cookie -> cookie.startsWith("tracepanel_redirect="));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_query_only_library_code_made_names_the_library_code_that_asked_for_it() throws Exception {
+        books();
+        HttpResponse<String> response = get("/shelves/count");
+        Map<String, Object> trace = FakeAgent.traceAt("/shelves/count");
+        List<Map<String, Object>> spans = (List<Map<String, Object>>) trace.get("spans");
+        Map<String, Object> count = (Map<String, Object>) spans.stream().filter(span -> "sql".equals(span.get("kind")))
+                .findFirst().orElseThrow().get("attrs");
+
+        assertThat(response.body()).isEqualTo("{\"count\":4}");
+        assertThat(count).containsEntry("code.origin", null);
+        assertThat(String.valueOf(count.get("code.caller"))).matches("src/test/java/lib/Shelf\\.java:\\d+ in getCount");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_query_the_app_s_code_made_has_no_library_caller() throws Exception {
+        books();
+        get("/page");
+        Map<String, Object> trace = FakeAgent.traceAt("/page");
+        Map<String, Object> count = (Map<String, Object>) ((List<Map<String, Object>>) trace.get("spans")).stream()
+                .filter(span -> "sql".equals(span.get("kind"))).findFirst().orElseThrow().get("attrs");
+
+        assertThat(String.valueOf(count.get("code.origin"))).matches("src/test/java/shop/BookController\\.java:\\d+ in page");
+        assertThat(count).doesNotContainKey("code.caller");
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void an_exception_fails_the_request_with_its_stack_the_app_s_frame_with_its_source() throws Exception {

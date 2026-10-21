@@ -84,6 +84,11 @@ final class TracedResponse extends HttpServletResponseWrapper {
             else super.getOutputStream().write(streamed.feed(bytes, offset, length));
             return;
         }
+        // Dropped for a redirect: what comes after goes where the container sends it.
+        if (page == null) {
+            super.getOutputStream().write(bytes, offset, length);
+            return;
+        }
         page.write(bytes, offset, length);
         // The container would have sent it by now: from here it is a stream.
         if (!sized && page.size() > getBufferSize()) stream();
@@ -92,7 +97,7 @@ final class TracedResponse extends HttpServletResponseWrapper {
     /** The app's flush: a held page goes out from here on, the widget put in as it passes. */
     private void flushed() throws IOException {
         if (!streaming && (ending || sized)) return;
-        if (!streaming) stream();
+        if (!streaming && page != null) stream();
         super.getOutputStream().flush();
     }
 
@@ -158,6 +163,43 @@ final class TracedResponse extends HttpServletResponseWrapper {
         }
         if (writer != null) writer.flush();
         flushed();
+    }
+
+    /**
+     * A redirect commits the response at once (a controller's "redirect:", Spring Security's): its headers, the
+     * redirect cookie among them, go on before, with the status it goes out with.
+     */
+    private void redirecting(int status) {
+        if (isCommitted()) return;
+        // A page held so far is dropped, as the container drops its buffer for the redirect.
+        page = null;
+        started = true;
+        super.setStatus(status);
+        beforeCommit.run();
+    }
+
+    @Override
+    public void sendRedirect(String location) throws IOException {
+        redirecting(SC_FOUND);
+        super.sendRedirect(location);
+    }
+
+    @Override
+    public void sendRedirect(String location, int status) throws IOException {
+        redirecting(status);
+        super.sendRedirect(location, status);
+    }
+
+    @Override
+    public void sendRedirect(String location, boolean clearBuffer) throws IOException {
+        redirecting(SC_FOUND);
+        super.sendRedirect(location, clearBuffer);
+    }
+
+    @Override
+    public void sendRedirect(String location, int status, boolean clearBuffer) throws IOException {
+        redirecting(status);
+        super.sendRedirect(location, status, clearBuffer);
     }
 
     @Override
