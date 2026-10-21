@@ -93,6 +93,41 @@ class CoreTest {
     }
 
     @Test
+    void a_redirect_that_answers_a_page_s_navigation_is_named_in_a_cookie_after_those_before_it() {
+        String a = "01K7B2Y7Q8M3E5R9T1V4W6X8Z0";
+        String b = "01K7B2Y7Q8M3E5R9T1V4W6X8Z1";
+        String seven = String.join("%2C", "1", "2", "3", "4", "5", "6", "7");
+
+        assertEquals("tracepanel_redirect=" + b + "; Max-Age=30; Path=/; SameSite=Lax",
+                Widget.redirectCookie(b, 302, "navigate", null, "theme=dark"));
+        assertEquals("tracepanel_redirect=" + a + "%2C" + b + "; Max-Age=30; Path=/; SameSite=Lax",
+                Widget.redirectCookie(b, 303, null, "text/html,application/xhtml+xml", "tracepanel_redirect=" + a + "; theme=dark"));
+        assertEquals("tracepanel_redirect=" + String.join("%2C", "4", "5", "6", "7", b) + "; Max-Age=30; Path=/; SameSite=Lax",
+                Widget.redirectCookie(b, 302, "navigate", null, "tracepanel_redirect=" + seven));
+        assertEquals("tracepanel_redirect=" + b + "; Max-Age=30; Path=/; SameSite=Lax",
+                Widget.redirectCookie(b, 302, "navigate", null, "tracepanel_redirect=%zz"));
+
+        assertEquals(null, Widget.redirectCookie(b, 302, "cors", "text/html", null));
+        assertEquals(null, Widget.redirectCookie(b, 302, null, "application/json", null));
+        assertEquals(null, Widget.redirectCookie(b, 200, "navigate", null, null));
+    }
+
+    @Test
+    void a_query_s_library_caller_is_past_the_orm_the_pool_and_the_driver() {
+        assertTrue(Stacks.queryLayer("org.hibernate.collection.spi.AbstractPersistentCollection"));
+        assertTrue(Stacks.queryLayer("org.springframework.data.repository.core.support.RepositoryMethodInvoker"));
+        assertTrue(Stacks.queryLayer("org.springframework.jdbc.core.JdbcTemplate"));
+        assertTrue(Stacks.queryLayer("com.zaxxer.hikari.pool.ProxyPreparedStatement"));
+        assertTrue(Stacks.queryLayer("org.postgresql.jdbc.PgPreparedStatement"));
+        assertTrue(Stacks.queryLayer("jdk.proxy2.$Proxy91"));
+
+        assertTrue(!Stacks.queryLayer("com.fasterxml.jackson.databind.ser.std.CollectionSerializer"));
+        assertTrue(!Stacks.queryLayer("org.springframework.security.authentication.dao.DaoAuthenticationProvider"));
+        assertTrue(!Stacks.queryLayer("org.springframework.data.rest.webmvc.RepositoryEntityController"));
+        assertTrue(!Stacks.queryLayer("org.thymeleaf.spring6.expression.SPELVariableExpressionEvaluator"));
+    }
+
+    @Test
     void a_traceparent_is_written_from_the_ulids_as_the_python_sdk_writes_it() {
         assertEquals("01a13b4a0cae6df75a2aef8e76021409", W3c.traceHex("01M4XMM35EDQVNMAQFHSV04509"));
         assertEquals("5a2aef8e7602140a", W3c.spanId("01M4XMM35EDQVNMAQFHSV0450A"));

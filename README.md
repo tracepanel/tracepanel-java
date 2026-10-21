@@ -152,11 +152,16 @@ is at `/__tracepanel__/` on your app.
 
 Every response carries `Tracepanel-Id` and `Server-Timing`. A single-page app
 on another origin reads them too: the SDK exposes them on CORS responses. A
-request that carries a W3C `traceparent` continues the caller's trace.
+request that carries a W3C `traceparent` continues the caller's trace. A
+form's POST that redirects to a page names itself in a short-lived cookie,
+so the panel on that page lists the POST before it.
+
+A query no code of yours made, such as one Jackson set off writing a lazy
+relation, is shown with the library code that asked for it.
 
 A trace holds what its request carried, for the console's Request tab: its
-headers, query, cookies and body, the session (Spring), and the answer's
-headers. A body is only what the app read itself, up to 16 KB: the SDK never
+headers, query, cookies and body, the session (Spring's `HttpSession`, Ktor's
+Sessions plugin), and the answer's headers. A body is only what the app read itself, up to 16 KB: the SDK never
 reads one for the app, and an upload is a file name and a size. A JSON body
 and a form have their secrets masked. `TRACEPANEL_CAPTURE_REQUEST=0` leaves
 all of it out.

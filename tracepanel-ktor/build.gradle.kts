@@ -15,6 +15,7 @@ dependencies {
 
     compileOnly("io.ktor:ktor-server-core:$ktor")
     compileOnly("io.ktor:ktor-client-core:$ktor")
+    compileOnly("io.ktor:ktor-server-sessions:$ktor")
     compileOnly("org.jetbrains.kotlin:kotlin-stdlib")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     compileOnly("ch.qos.logback:logback-classic:1.5.18")
@@ -29,6 +30,7 @@ dependencies {
     testImplementation("io.ktor:ktor-client-cio:$ktor")
     testImplementation("io.ktor:ktor-server-status-pages:$ktor")
     testImplementation("io.ktor:ktor-server-html-builder:$ktor")
+    testImplementation("io.ktor:ktor-server-sessions:$ktor")
     testImplementation("org.jetbrains.kotlin:kotlin-stdlib")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("ch.qos.logback:logback-classic:1.5.18")

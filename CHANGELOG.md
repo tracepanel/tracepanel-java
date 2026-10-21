@@ -4,6 +4,21 @@
 
 ### Added
 
+- A form's POST that redirects is in the panel of the page it leads to,
+  as for Python: a redirect (Spring's `redirect:`, `sendRedirect`, a 3xx
+  `ResponseEntity`; Ktor's `respondRedirect`) that answers the browser's
+  navigation sets the `tracepanel_redirect` cookie, which names it, and
+  the redirects before it, for 30 seconds. The widget lists them before
+  the page. A fetch() that follows a redirect sets none.
+- A query no code of the app's made has a `code.caller`, as for Python:
+  the library code that asked for it, past the ORM, its repositories, the
+  pool and the driver (Jackson writing a lazy relation, Spring Security's
+  `JdbcUserDetailsManager` loading a user). The console shows it, marked
+  as a library's. Code is the app's by its packages, as for `code.origin`.
+- Ktor: the session (the Sessions plugin's) is in the trace, as Spring's
+  `HttpSession` is: each session's properties under `session.*`, their
+  secrets masked. A deferred session (`io.ktor.server.sessions.deferred`)
+  is not read for it.
 - The console's Request tab for Spring and Ktor requests, as for Python
   ones: a trace holds its request's headers, query, cookies and body, the
   session (Spring), and the answer's headers, under the same names and

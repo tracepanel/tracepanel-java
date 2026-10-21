@@ -245,6 +245,12 @@ final class TracepanelFilter extends OncePerRequestFilter {
     private void headers(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {
         if (response.isCommitted()) return;
         Widget.headers(trace, origin, tracepanel.config().prefix()).forEach(response::setHeader);
+        // A redirect that answers a page's navigation (a form's POST): the page it leads to lists this request first.
+        String redirect = Widget.redirectCookie(trace.id(), response.getStatus(), request.getHeader("Sec-Fetch-Mode"),
+                request.getHeader("Accept"), cookies(request));
+        if (redirect != null && response.getHeaders("Set-Cookie").stream().noneMatch(set -> set.startsWith(Widget.REDIRECTS + "="))) {
+            response.addHeader("Set-Cookie", redirect);
+        }
         // Across origins (an SPA on its dev server), the page reads them only when the API exposes them.
         if (request.getHeader("Origin") != null) {
             String exposed = response.getHeader("Access-Control-Expose-Headers");

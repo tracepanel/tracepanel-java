@@ -12,6 +12,13 @@ import io.ktor.client.request.setBody
 import io.ktor.http.contentType
 import io.ktor.server.request.receiveText
 import io.ktor.server.routing.post
+import io.ktor.server.response.respondRedirect
+import io.ktor.server.sessions.SessionSerializer
+import io.ktor.server.sessions.Sessions
+import io.ktor.server.sessions.cookie
+import io.ktor.server.sessions.sessions
+import io.ktor.server.sessions.set
+import lib.countBooks
 import io.ktor.http.HttpHeaders
 import io.ktor.server.response.header
 import io.ktor.server.response.respondBytesWriter
@@ -80,6 +87,15 @@ class OutOfStock(message: String) : RuntimeException(message)
 
 class PriceMissing(message: String) : RuntimeException(message)
 
+/** The app's session, kept by the Sessions plugin in a cookie. */
+data class Cart(val items: String, val csrfToken: String)
+
+private object CartSerializer : SessionSerializer<Cart> {
+    override fun serialize(session: Cart) = "${session.items}|${session.csrfToken}"
+
+    override fun deserialize(text: String) = text.split('|').let { Cart(it[0], it[1]) }
+}
+
 /** A Ktor app with the plugin: what the agent gets, and what the page and a caller see. */
 class KtorTracingTest {
     companion object {
@@ -106,6 +122,7 @@ class KtorTracingTest {
         val appClient = createClient { install(TracepanelClient) }
         application {
             install(Tracepanel) { packages = listOf("shop") }
+            install(Sessions) { cookie<Cart>("cart") { serializer = CartSerializer } }
             install(StatusPages) {
                 exception<OutOfStock> { call, cause -> call.respondText(cause.message ?: "", status = HttpStatusCode.Conflict) }
                 exception<PriceMissing> { call, _ -> call.respondText("sorry", status = HttpStatusCode.InternalServerError) }
@@ -143,6 +160,15 @@ class KtorTracingTest {
                     call.respondText("ordered ${order.length}")
                 }
                 post("/ignored") { call.respondText("ignored") }
+                post("/shelves") {
+                    title(1)
+                    call.respondRedirect("/page")
+                }
+                get("/shelves/count") { call.respondText(countBooks(db).toString()) }
+                get("/cart") {
+                    call.sessions.set(Cart("3 books", "s3cret"))
+                    call.respondText("added")
+                }
                 get("/report") {
                     // On another thread, as a coroutine goes: the profile follows the call there.
                     val total = withContext(Dispatchers.Default) { crunch(60) }
@@ -335,6 +361,78 @@ class KtorTracingTest {
         assertEquals("17", orders["http.response.header.x_order"])
 
         assertEquals(null, ignored["http.request.body"])
+    }
+
+    /** The trace of the call that sent X-Test: `test`, once the SDK sent it. */
+    private fun traceOf(test: String): Map<String, Any> {
+        repeat(250) {
+            FakeAgent.TRACES.firstOrNull { attrs(it)["http.request.header.x_test"] == test }?.let { return it }
+            Thread.sleep(20)
+        }
+        throw AssertionError("no trace of $test")
+    }
+
+    @Test
+    fun a_form_s_post_that_redirects_a_page_s_navigation_names_itself_in_the_redirect_cookie() = app {
+        val noRedirects = createClient { followRedirects = false }
+        val sent = noRedirects.post("/shelves") {
+            header("Sec-Fetch-Mode", "navigate")
+            header("X-Test", "redirect-1")
+        }
+        val again = noRedirects.post("/shelves") {
+            header(HttpHeaders.Accept, "text/html,application/xhtml+xml")
+            header(HttpHeaders.Cookie, "tracepanel_redirect=01K7B2Y7Q8M3E5R9T1V4W6X8Z0")
+            header("X-Test", "redirect-2")
+        }
+        val fetched = noRedirects.post("/shelves") {
+            header("Sec-Fetch-Mode", "cors")
+            header("X-Test", "redirect-3")
+        }
+        val first = traceOf("redirect-1")["id"]
+        val second = traceOf("redirect-2")["id"]
+
+        assertEquals(HttpStatusCode.Found, sent.status)
+        assertEquals(listOf("tracepanel_redirect=$first; Max-Age=30; Path=/; SameSite=Lax"), sent.headers.getAll(HttpHeaders.SetCookie))
+        assertEquals(first, sent.headers["Tracepanel-Id"])
+
+        assertEquals(
+            listOf("tracepanel_redirect=01K7B2Y7Q8M3E5R9T1V4W6X8Z0%2C$second; Max-Age=30; Path=/; SameSite=Lax"),
+            again.headers.getAll(HttpHeaders.SetCookie),
+        )
+
+        assertEquals(HttpStatusCode.Found, fetched.status)
+        assertEquals(null, fetched.headers.getAll(HttpHeaders.SetCookie))
+    }
+
+    @Test
+    fun a_query_only_library_code_made_names_the_library_code_that_asked_for_it() = app {
+        assertEquals("3", client.get("/shelves/count").bodyAsText())
+        val count = spans(FakeAgent.traceAt("/shelves/count"), "sql").single()["attrs"] as Map<*, *>
+
+        assertEquals(null, count["code.origin"])
+        assertTrue(Regex("""lib/Shelf\.kt:\d+ in invokeSuspend""").matches(count["code.caller"].toString()), count.toString())
+    }
+
+    @Test
+    fun a_query_the_app_s_code_made_has_no_library_caller() = app {
+        client.get("/books/2")
+        val title = spans(FakeAgent.traceAt("/books/2"), "sql").first()["attrs"] as Map<*, *>
+
+        assertTrue(title["code.origin"].toString().contains("KtorTracingTest.kt"), title.toString())
+        assertEquals(false, title.containsKey("code.caller"))
+    }
+
+    @Test
+    fun the_session_the_call_left_is_recorded_its_secrets_masked() = app {
+        client.get("/cart")
+        client.get("/me")
+        val cart = attrs(FakeAgent.traceAt("/cart"))
+        val me = attrs(FakeAgent.traceAt("/me"))
+
+        assertEquals("'3 books'", cart["session.items"])
+        assertEquals(Secrets.MASK, cart["session.csrftoken"])
+
+        assertEquals(emptyList<String>(), me.keys.filter { it.startsWith("session.") })
     }
 
     @Test

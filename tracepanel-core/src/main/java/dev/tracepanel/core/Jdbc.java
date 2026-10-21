@@ -225,7 +225,10 @@ public final class Jdbc {
             attrs.put("db.params_hash", params.isEmpty() ? null : Sql.hash(Json.write(values)));
             attrs.put("db.many", many);
             Tracepanel tracepanel = Tracepanel.get();
-            attrs.put("code.origin", tracepanel == null ? null : tracepanel.stacks().origin());
+            String origin = tracepanel == null ? null : tracepanel.stacks().origin();
+            attrs.put("code.origin", origin);
+            // A query only library code made (Jackson writing a lazy relation): which library code asked for it.
+            if (origin == null && tracepanel != null) attrs.put("code.caller", tracepanel.stacks().caller());
             attrs.put("code.template", null);
             return attrs;
         }
