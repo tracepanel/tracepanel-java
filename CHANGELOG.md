@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Spring: a request's handler is named as Java writes a method,
+  `BookController#list`, in `code.view` and its `view` span. It was the
+  class's full name and the method, `com.shop.BookController.list`, which
+  stays in the span's `code.function`: the console shows it on hover. Ktor
+  keeps naming its handler, a lambda, by its route (`GET /books/{id}`).
+
 ## 0.4.0 (2026-10-21)
 
 The SDK downloads `tracepanel-agent` 0.4.0 the first time: an app says what it

@@ -203,6 +203,8 @@ class KtorTracingTest {
         val view = spans(trace, "view").single()
         assertEquals("GET /books/{id}", view["name"])
         assertEquals("GET /books/{id}", attrs(trace)["code.view"])
+        // A lambda has no name of its own: no code.function, so the console has no longer name to show on hover.
+        assertEquals(emptyMap<String, Any>(), view["attrs"])
         assertEquals(listOf(view["id"]), spans(trace, "sql").map { it["parent_id"] }.distinct())
         @Suppress("UNCHECKED_CAST")
         val logs = trace["logs"] as List<Map<String, Any>>

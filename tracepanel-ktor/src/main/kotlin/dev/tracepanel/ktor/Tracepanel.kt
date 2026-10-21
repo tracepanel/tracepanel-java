@@ -117,7 +117,8 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
     val sessions = present("io.ktor.server.sessions.SessionsKt")
 
     // The route that matched, once the routing found it: the trace's name. Its handler, a lambda with no name of its
-    // own, is a view span named by the route (GET /books/{id}): what it runs, on any thread, goes under it.
+    // own, is a view span named by the route (GET /books/{id}), as is the trace's code.view; the console calls it the
+    // handler. What it runs, on any thread, goes under it.
     application.monitor.subscribe(RoutingRoot.RoutingCallStarted) { call ->
         val route = routePath(call.route.toString())
         call.attributes.put(ROUTE, route)

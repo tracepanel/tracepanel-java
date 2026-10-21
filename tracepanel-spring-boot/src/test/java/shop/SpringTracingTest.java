@@ -68,12 +68,15 @@ class SpringTracingTest {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(attrs).containsEntry("http.route", "/shelves/{shelf}/books")
                 .containsEntry("http.status_code", 200)
-                .containsEntry("code.view", "shop.BookController.books")
+                .containsEntry("code.view", "BookController#books")
                 .containsEntry("telemetry.sdk.language", "java")
                 .containsEntry("service.role", "web");
         assertThat(attrs).containsEntry("tracepanel.framework", "Spring Boot " + SpringBootVersion.getVersion());
 
         assertThat(spans.stream().map(span -> span.get("kind")).toList()).startsWith("http", "view");
+        assertThat(spans.get(1)).containsEntry("name", "BookController#books")
+                .containsEntry("attrs", Map.of("code.function", "shop.BookController.books"));
+
         assertThat(sql).hasSize(5);
         assertThat(sql.get(1).get("name")).isEqualTo("SELECT author");
         assertThat(lookup).containsEntry("db.fingerprint", "SELECT name FROM author WHERE id = ?")
