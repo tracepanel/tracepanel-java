@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Each release attests its jars, POMs and Gradle modules on GitHub, and
+  signs every file on Maven Central with Sigstore as well as GPG. The
+  README shows how to check both.
+
 ## 0.4.1 (2026-10-21)
 
 The SDK downloads `tracepanel-agent` 0.4.1 the first time: its console names a

@@ -6,9 +6,18 @@ name: Release
 # secrets MAVEN_CENTRAL_USERNAME and MAVEN_CENTRAL_PASSWORD (a Central Portal user token for the dev.tracepanel
 # namespace), SIGNING_KEY (an armored private key, its public half on a key server) and SIGNING_KEY_PASSWORD, in
 # the environment maven-central.
+#
+# Each file goes with a GPG signature (.asc), which Central requires, and a Sigstore bundle (.sigstore.json): signed
+# keyless by this workflow's identity, Central checks it and serves it next to the file. Once published, the jars,
+# POMs and Gradle modules of the bundle uploaded to Central are attested: `gh attestation verify FILE --owner
+# tracepanel` checks one.
+#
+# Run by hand (workflow_dispatch), it is a dry run: it signs the libraries in Sigstore into the runner's local Maven
+# repository and checks each bundle with cosign, as the README shows. Nothing is published, nothing is attested.
 on:
   push:
     tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +25,7 @@ permissions:
 jobs:
   ci:
     name: CI passed on this commit
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -41,6 +51,10 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      # Sigstore's keyless signing: the job's OIDC token is its identity.
+      id-token: write
     environment:
       name: maven-central
       url: https://central.sonatype.com/namespace/dev.tracepanel
@@ -67,11 +81,47 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_sigstoreSign: "true"
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --console=plain
+      # The zip the plugin uploaded to the Central Portal, as it was: the next job attests its files.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: maven-central-bundle
+          path: build/publish/*.zip
+          if-no-files-found: error
+
+  # The provenance of what Central got: each module's jar, sources, javadoc, POM and Gradle module, out of the uploaded
+  # bundle, not a build of its own. A job of its own, so a failed attestation is run again without publishing again.
+  attest:
+    name: Attest the build
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: maven-central-bundle
+          path: bundle
+      - name: The files of the bundle
+        run: |
+          unzip -q bundle/*.zip -d files
+          find files -type f \( -name '*.jar' -o -name '*.pom' -o -name '*.module' \) | sort | tee subjects.txt
+          # Five of each module: tracepanel-core, tracepanel-spring-boot and tracepanel-ktor.
+          [ "$(wc -l < subjects.txt)" -ge 15 ] || { echo "::error::fewer than 15 files in the bundle" && exit 1; }
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            files/**/*.jar
+            files/**/*.pom
+            files/**/*.module
 
   github:
     name: GitHub release
-    needs: publish
+    needs: attest
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -88,3 +138,32 @@ jobs:
             *) pre= ;;
           esac
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag $pre
+
+  dry-run:
+    name: Sign in Sigstore, publish nothing
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      # The runner's own ~/.m2, gone with it. No GPG key: the files are signed in Sigstore only.
+      - run: ./gradlew publishToMavenLocal -PsigstoreSign --no-configuration-cache --console=plain
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Each file's bundle, checked as the README shows
+        run: |
+          count=0
+          for bundle in $(find ~/.m2/repository/dev/tracepanel -name '*.sigstore.json' | sort); do
+            cosign verify-blob "${bundle%.sigstore.json}" --bundle "$bundle" \
+              --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+            count=$((count + 1))
+          done
+          [ "$count" -ge 15 ] || { echo "::error::$count bundles, fewer than 15" && exit 1; }
