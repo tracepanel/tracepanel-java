@@ -28,7 +28,7 @@ out. With Gradle:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    developmentOnly("dev.tracepanel:tracepanel-spring-boot:0.4.2")
+    developmentOnly("dev.tracepanel:tracepanel-spring-boot:0.5.0")
 }
 ```
 
@@ -42,7 +42,7 @@ With Maven, add it in a profile that only development runs use:
       <dependency>
         <groupId>dev.tracepanel</groupId>
         <artifactId>tracepanel-spring-boot</artifactId>
-        <version>0.4.2</version>
+        <version>0.5.0</version>
       </dependency>
     </dependencies>
   </profile>
@@ -109,7 +109,7 @@ WebFlux apps aren't supported yet.
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tracepanel:tracepanel-ktor:0.4.2")
+    implementation("dev.tracepanel:tracepanel-ktor:0.5.0")
 }
 ```
 

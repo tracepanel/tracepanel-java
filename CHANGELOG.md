@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 (2026-10-26)
+
+The SDK downloads `tracepanel-agent` 0.5.0 the first time. Its console has
+pages for AWS, LLM calls and file storage, shows memory and GC pauses in
+profiles, draws a task's workflow whole, and has a new look for the call
+tree, the lists and the light theme. It keeps its traces in a new store
+file, `traces.v24.sqlite3`, and doesn't read the old one: the traces and
+issues an earlier agent recorded stay there, and you can delete it.
+
+### Changed
+
+- Downloads `tracepanel-agent` 0.5.0, rather than 0.4.1.
+
 ## 0.4.2 (2026-10-21)
 
 ### Added
