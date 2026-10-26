@@ -282,4 +282,6 @@ integration, `tracepanel-ktor` the Ktor one.
 
 ## License
 
-MIT
+MIT. The agent the SDK downloads is under the
+[FSL-1.1-ALv2](https://github.com/tracepanel/tracepanel/blob/main/LICENSE):
+source available, and Apache-2.0 two years after each release.
