@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1 (2026-10-26)
+
+The SDK downloads `tracepanel-agent` 0.5.1 the first time. Its console and
+a shared snapshot file start dark, whatever your system's theme. To go back
+to light, click the theme button in the console's sidebar: it switches to
+Light, then to Auto, which follows the system. A theme you chose before
+stays, so if you already picked Light or Auto, nothing changes for you.
+
+### Changed
+
+- Downloads `tracepanel-agent` 0.5.1, rather than 0.5.0.
+
 ## 0.5.0 (2026-10-26)
 
 The SDK downloads `tracepanel-agent` 0.5.0 the first time. Its console has
