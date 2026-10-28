@@ -42,6 +42,11 @@ public final class HttpCalls {
     public static Call start(String method, URI url) {
         Trace trace = Tracepanel.current();
         if (trace == null || IN_CALL.get() != null) return null;
+        return start(trace, method, url);
+    }
+
+    /** A call made in `trace`, whichever thread this is: a test's request of the app, seen by the app's side. */
+    public static Call start(Trace trace, String method, URI url) {
         Tracepanel tracepanel = Tracepanel.get();
         String origin = tracepanel == null ? null : tracepanel.stacks().origin();
         return new Call(trace, method.toUpperCase(java.util.Locale.ROOT), url, origin);

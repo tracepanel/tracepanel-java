@@ -37,6 +37,8 @@ public final class Trace {
     // Sampled while it runs, when it is profiled; its profile once it ended.
     volatile Profiler.Recording recording;
     private Map<String, Object> profile;
+    // The trace its thread worked for when it began (a test's, around its MockMvc request), current again once it ends.
+    Trace outer;
 
     Trace(String kind, String name, Map<String, Object> attrs) {
         this(kind, kind, name, attrs);
@@ -52,6 +54,28 @@ public final class Trace {
 
     public String id() {
         return id;
+    }
+
+    /** What it is: http, task, command, test. */
+    public String kind() {
+        return kind;
+    }
+
+    /** When it began, in microseconds since the epoch. */
+    public long start() {
+        return start;
+    }
+
+    /** The trace its thread worked for when it began, or null: the thread works for it again once this one ends. */
+    public Trace outer() {
+        return outer;
+    }
+
+    /** Its spans so far, each as it is now: a test counts its queries while it runs. */
+    public synchronized List<Map<String, Object>> spans() {
+        List<Map<String, Object>> copy = new ArrayList<>(spans.size());
+        for (Map<String, Object> span : spans) copy.add(new LinkedHashMap<>(span));
+        return copy;
     }
 
     public synchronized void name(String name) {
