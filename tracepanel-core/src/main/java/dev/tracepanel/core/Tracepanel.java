@@ -12,6 +12,7 @@ public final class Tracepanel {
     // Which part of the project made a trace, unless its integration says: a task's is a worker, as in every SDK.
     private static final Map<String, String> ROLES = Map.of("http", "web", "task", "worker");
     private static volatile Tracepanel instance;
+    private static volatile Tests tests;
 
     private final Config config;
     private final Stacks stacks;
@@ -77,6 +78,34 @@ public final class Tracepanel {
         framework = name;
     }
 
+    /**
+     * What a test runner's integration (tracepanel-junit) is told of the traces, and answers: each test a trace, the
+     * app's requests it makes linked to it. Set, the app's pages go without the widget, as the tests read them.
+     */
+    public interface Tests {
+        /** A trace began: an app's request a test made carries the test's W3C trace id (w3c.trace_id). */
+        void begun(Trace trace);
+
+        /** A trace ended with this document: whether it goes to the agent. */
+        boolean finished(Trace trace, Map<String, Object> document);
+
+        /**
+         * The trace of the test that made a request of the app in this process (MockMvc, a test client) without a
+         * traceparent, or null: the request is a call of that trace.
+         */
+        Trace caller();
+    }
+
+    /** Hands each trace to a test runner's integration from now on; null: no tests. */
+    public static void tests(Tests hooks) {
+        tests = hooks;
+    }
+
+    /** The test runner's integration, or null outside tests. */
+    public static Tests tests() {
+        return tests;
+    }
+
     /** The trace this thread works for, or null. */
     public static Trace current() {
         return CURRENT.get();
@@ -116,6 +145,8 @@ public final class Tracepanel {
     /** The same, with the root span's kind: a task's trace begins with its task.run. */
     public Trace begin(String kind, String rootKind, String name, Map<String, Object> attrs) {
         Trace trace = new Trace(kind, rootKind, name, attrs);
+        // The trace this thread worked for: a test's, whose MockMvc request this is. It is current again after.
+        trace.outer = CURRENT.get();
         trace.attr("service.name", config.service());
         trace.attr("service.role", attrs.getOrDefault("service.role", ROLES.getOrDefault(kind, kind)));
         trace.attr("telemetry.sdk.language", language);
@@ -126,6 +157,8 @@ public final class Tracepanel {
         CURRENT.set(trace);
         // TRACEPANEL_PROFILE profiles every trace; a request may still ask for its own (profile).
         if (config.profile()) profile(trace);
+        Tests hooks = tests;
+        if (hooks != null) hooks.begun(trace);
         return trace;
     }
 
@@ -139,12 +172,17 @@ public final class Tracepanel {
         trace.recording = profiler.start(Thread.currentThread());
     }
 
-    /** The trace ended: it goes to the agent, and the thread works for none. */
+    /** The trace ended: it goes to the agent, and the thread works for the one it worked for before, if any. */
     public void finish(Trace trace) {
-        if (CURRENT.get() == trace) CURRENT.remove();
+        if (CURRENT.get() == trace) {
+            if (trace.outer != null) CURRENT.set(trace.outer);
+            else CURRENT.remove();
+        }
         Profiler.Recording recording = trace.recording;
         if (recording != null) trace.profile(profiler.stop(recording));
-        sender.submit(trace.finish());
+        Map<String, Object> document = trace.finish();
+        Tests hooks = tests;
+        if (hooks == null || hooks.finished(trace, document)) sender.submit(document);
     }
 
     /**

@@ -30,6 +30,12 @@ public final class FakeAgent {
     public static final List<String> HELLOS = new CopyOnWriteArrayList<>();
     /** The app each console call came through (its Tracepanel-Console header), by call. */
     public static final List<String> VIA = new CopyOnWriteArrayList<>();
+    /**
+     * The issues the console says it found in a trace, by the trace's name, from the trace as sent: what a test of the
+     * findings sets.
+     */
+    public static final Map<String, java.util.function.Function<Map<String, Object>, List<Map<String, Object>>>> ISSUES =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private static boolean started;
 
     private FakeAgent() {}
@@ -61,7 +67,17 @@ public final class FakeAgent {
             // A stored trace, as the agent's API gives it (the app's EXPLAIN reads its statement there).
             String path = exchange.getRequestURI().getPath();
             Map<String, Object> stored = path.startsWith("/api/traces/") ? TRACES.stream()
-                    .filter(trace -> path.substring("/api/traces/".length()).equals(trace.get("id"))).findFirst().orElse(null) : null;
+                    .filter(trace -> path.substring("/api/traces/".length()).equals(trace.get("id"))).findFirst()
+                    .map(FakeAgent::withIssues).orElse(null) : null;
+            // The summaries of the traces asked for by id, with how many issues each has.
+            String query = String.valueOf(exchange.getRequestURI().getRawQuery());
+            if (path.equals("/api/traces") && query.startsWith("ids=")) {
+                List<String> ids = List.of(java.net.URLDecoder.decode(query.substring(4).replaceAll("&.*", ""), StandardCharsets.UTF_8).split(","));
+                List<Map<String, Object>> rows = TRACES.stream().filter(trace -> ids.contains(trace.get("id")))
+                        .map(trace -> Map.<String, Object>of("id", trace.get("id"), "issues", ((List<?>) withIssues(trace).get("issues")).size()))
+                        .toList();
+                stored = Map.of("traces", rows);
+            }
             byte[] body = (stored != null ? dev.tracepanel.core.Json.write(stored) : "console " + exchange.getRequestURI())
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", stored != null ? "application/json" : "text/plain");
@@ -73,6 +89,15 @@ public final class FakeAgent {
         console.start();
         Files.writeString(store.resolve("agent.addr"), "tcp:127.0.0.1:" + protocol.getLocalPort() + "\n");
         Files.writeString(store.resolve("console.addr"), "http://127.0.0.1:" + console.getAddress().getPort() + "/\n");
+    }
+
+    /** A stored trace, with the issues a test said the console finds in it. */
+    private static Map<String, Object> withIssues(Map<String, Object> trace) {
+        var issues = ISSUES.get(String.valueOf(trace.get("name")));
+        if (issues == null) return trace;
+        Map<String, Object> found = new java.util.LinkedHashMap<>(trace);
+        found.put("issues", issues.apply(trace));
+        return found;
     }
 
     @SuppressWarnings("unchecked")

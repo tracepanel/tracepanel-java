@@ -9,6 +9,15 @@
   frames that made it; any other stays `jdbc`. An agent that knows the ORM
   hints at its N+1 fix: `join fetch`, `@EntityGraph` or `@BatchSize` for
   Hibernate, `.with()` or `load()` for Exposed.
+- `tracepanel-junit`, a JUnit extension: each test runs as a trace, and a
+  test fails when it, or a request it makes of the app (`MockMvc`,
+  `TestRestTemplate`, `WebTestClient`, Ktor's `testApplication`), makes an
+  N+1 or duplicate queries. `@Tracepanel(allow, failOn, maxQueries)` on a
+  test or its class, a `TestTrace` parameter, `testTrace()` and
+  `maxQueries(n, () -> ...)`, as the Python SDK's pytest plugin and the
+  JavaScript SDK's Vitest plugin do.
+- Spring Boot's test slices (`@WebMvcTest`, `@JdbcTest`, `@DataJpaTest`,
+  `@DataJdbcTest`, `@JooqTest`) are traced as a full `@SpringBootTest` is.
 
 ### Fixed
 

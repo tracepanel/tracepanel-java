@@ -34,7 +34,7 @@ public final class W3c {
     }
 
     /** The W3C trace this trace is part of: the one it was called in, else its own id, kept on it from now on. */
-    static String traceId(Trace trace) {
+    public static String traceId(Trace trace) {
         Object known = trace.attr("w3c.trace_id");
         if (known instanceof String id) return id;
         String own = traceHex(trace.id());

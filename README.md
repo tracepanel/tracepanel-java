@@ -17,6 +17,7 @@ issues and serves the console. It needs Java 17 or later.
 | --- | --- | --- |
 | [Spring Boot](#spring-boot) | `dev.tracepanel:tracepanel-spring-boot` | Spring Boot 3.5 and 4, Spring MVC |
 | [Ktor](#ktor) | `dev.tracepanel:tracepanel-ktor` | Ktor 3 |
+| [JUnit](#in-tests) | `dev.tracepanel:tracepanel-junit` | JUnit Jupiter 5.12 and later, JUnit 6 |
 
 ## Spring Boot
 
@@ -151,6 +152,100 @@ is at `/__tracepanel__/` on your app.
 - The signed-in user your code names with
   `call.tracepanelUser(id, username)`.
 
+## In tests
+
+`tracepanel-junit` runs each test as a trace and fails a test that makes
+an N+1 or duplicate queries, its own or those of the requests it makes of
+the app. Add it to the test dependencies, next to the framework's:
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    testImplementation("dev.tracepanel:tracepanel-junit:0.5.1")
+}
+```
+
+With Maven, it is a `test` scoped dependency.
+
+Turn it on with `@Tracepanel` on a test class, or on every test class
+with JUnit's extension autodetection, which finds it in the jar:
+
+```properties
+# src/test/resources/junit-platform.properties
+junit.jupiter.extensions.autodetection.enabled=true
+```
+
+```java
+import static dev.tracepanel.junit.TracepanelExtension.maxQueries;
+
+@Tracepanel
+@SpringBootTest
+@AutoConfigureMockMvc
+class FeedTest {
+    @Autowired
+    MockMvc mvc;
+
+    @Test
+    @Tracepanel(maxQueries = 10, allow = "n+1")
+    void feed(TestTrace trace) throws Exception {
+        mvc.perform(get("/feed")).andExpect(status().isOk());
+        assertThat(trace.queries()).isLessThanOrEqualTo(10);
+        maxQueries(2, () -> mvc.perform(get("/feed?page=2")));
+    }
+}
+```
+
+Tracepanel turns on in the test JVM as in development, without the badge
+on the pages the tests read, and the extension starts the project's agent
+unless one runs. Each test's body is a trace of kind `test`. A request it
+makes of the app, with `MockMvc`, `TestRestTemplate`, `WebTestClient` or
+Ktor's `testApplication` client, is a call of that trace, and the app's
+trace of it is linked to the test. Spring Boot's test slices
+(`@WebMvcTest`, `@JdbcTest`, `@DataJpaTest`, `@DataJdbcTest`, `@JooqTest`)
+are traced as a full `@SpringBootTest` is. Outside Spring, wrap the
+`DataSource` with `Jdbc.dataSource(dataSource, "default")`.
+
+Once a test has passed, the agent is asked what it found in the test's
+trace and in its requests'. An issue of a kind that fails tests fails it,
+with the issue, its query, the line of your code that made it and a link
+to the trace in the console:
+
+```
+tracepanel found 1 issue in this test:
+
+N+1: 4 similar queries · SELECT author
+  SELECT name FROM author WHERE id = ?
+  at src/main/java/shop/Books.java:54 in titlesWithAuthors
+  Load the related rows with the parent rows (a join, or one batched query) instead of one query per row.
+
+The test's trace: http://127.0.0.1:52817/#/t/01KQ8M0Z9E6X4V2B7N3C5D1F0G
+Allowed here with @Tracepanel(allow = "n+1").
+```
+
+`n+1` and `duplicates` fail a test by default. The `tracepanel.failOn`
+configuration parameter names others, in `junit-platform.properties` or as
+a system property: `tracepanel.failOn=n+1, duplicates, slow-sql`. The kinds
+are `n+1`, `duplicates`, `slow-sql`, `slow-http`, `slow-call`, `error`,
+`long-transaction`, `in-transaction`, `htmx`, `queue-wait`,
+`blocking-call` and `large-result`; a misspelled one fails the test that
+names it.
+
+`@Tracepanel` on a test method or class says what fails its tests:
+`failOn` instead of the run's kinds, `allow` takes kinds out, and
+`maxQueries` fails a test that makes more queries. The nearest says first:
+the method's, then its class's, then the classes around it.
+
+A test method can take the test's trace as a `TestTrace` parameter, or get
+it from `TracepanelExtension.testTrace()`: `queries()` and `sql()` are the
+queries so far, its requests' included, `issues()` what the agent found,
+`url()` the trace in the console. `maxQueries(n, () -> ...)` fails when the
+block makes more than `n` queries.
+
+Without an agent (`TRACEPANEL_AGENT=off`, or none for the platform) the
+tests run as usual, and one warning says that issues aren't checked:
+`maxQueries` still is, as counting queries needs no agent.
+`TRACEPANEL_ENABLED=0` turns the extension off.
+
 ## In every app
 
 Every response carries `Tracepanel-Id` and `Server-Timing`. A single-page app
@@ -278,7 +373,9 @@ writes the checksums of that version's downloads.
 
 `tracepanel-core` records traces and talks to the agent, with no framework
 and no dependencies. `tracepanel-spring-boot` is the Spring Boot
-integration, `tracepanel-ktor` the Ktor one.
+integration, `tracepanel-ktor` the Ktor one, and `tracepanel-junit` the
+JUnit extension. The extension's tests with the real agent download it, as
+a project does, unless `TEST_AGENT_BIN` names one.
 
 ## License
 

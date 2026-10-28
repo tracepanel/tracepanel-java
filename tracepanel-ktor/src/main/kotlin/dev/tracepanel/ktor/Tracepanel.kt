@@ -2,6 +2,7 @@ package dev.tracepanel.ktor
 
 import dev.tracepanel.core.Config
 import dev.tracepanel.core.Console
+import dev.tracepanel.core.HttpCalls
 import dev.tracepanel.core.Profiler
 import dev.tracepanel.core.RequestDetails
 import dev.tracepanel.core.Trace
@@ -100,10 +101,11 @@ private object Thrown : Hook<suspend (ApplicationCall, Throwable) -> Unit> {
  */
 val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
     val config = Config.load(pluginConfig.service ?: application.environment.config.propertyOrNull("ktor.application.id")?.getString())
-    // On in Ktor's development mode (ktor.development, -Dio.ktor.development=true), or when TRACEPANEL_ENABLED says so:
-    // the dependency goes into the production build too.
-    val explicit = System.getenv("TRACEPANEL_ENABLED")
-    if (!(if (explicit.isNullOrBlank()) application.developmentMode else config.enabled())) return@createApplicationPlugin
+    // On in Ktor's development mode (ktor.development, -Dio.ktor.development=true), or when TRACEPANEL_ENABLED says so
+    // (tracepanel.enabled, as tracepanel-junit sets it): the dependency goes into the production build too.
+    val explicit = System.getenv("TRACEPANEL_ENABLED").takeUnless { it.isNullOrBlank() } ?: System.getProperty("tracepanel.enabled")
+    val on = if (explicit.isNullOrBlank()) application.developmentMode else explicit.lowercase() !in setOf("0", "false", "no", "off")
+    if (!on) return@createApplicationPlugin
     val packages = pluginConfig.packages.ifEmpty { appPackages() }
     val tracepanel = Core.start(config, packages)
     val ktorVersion = ApplicationCall::class.java.`package`?.implementationVersion ?: ""
@@ -145,6 +147,9 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
             "service.role" to "web",
         )
         attrs.putAll(W3c.incoming(call.request.headers[W3c.HEADER]))
+        // A test's call of the app without a traceparent (testApplication's client): a call of the test's trace.
+        val testCall = if (attrs.containsKey("w3c.trace_id")) null else testCall(call, method)
+        testCall?.let { attrs.putAll(W3c.incoming(it.traceparent())) }
         val cookies = call.request.headers.getAll(HttpHeaders.Cookie)?.joinToString("; ")
         // What the call carried, for the console's Request tab; its body as the handler reads it (ReceiveRequestBytes).
         if (config.captureRequest()) {
@@ -159,8 +164,9 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
         val trace = tracepanel.begin("http", "$method $path", attrs)
         // Asked by a header or the panel's cookie: where this call's time goes in code.
         if (Profiler.requested(call.request.headers[Profiler.HEADER], cookies)) tracepanel.profile(trace)
-        // On this thread only inside the call's coroutines, which put it back on every thread they resume on.
-        Core.bind(null)
+        // On this thread only inside the call's coroutines, which put it back on every thread they resume on: the
+        // thread works for the trace it did before (none, or the test's whose client made the call).
+        Core.bind(trace.outer())
         call.attributes.put(TRACE, trace)
         call.response.headers.append("Tracepanel-Id", trace.id(), safeOnly = false)
         var failure: Throwable? = null
@@ -192,6 +198,7 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
                 if (sessions) runCatching { RequestDetails.session(sessionItems(call)) }.getOrNull()?.forEach(trace::attr)
             }
             tracepanel.finish(trace)
+            testCall?.end(status)
         }
     }
 
@@ -268,6 +275,16 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
             else -> Unit
         }
     }
+}
+
+/** The call of the running test's trace this call is, when a test made it in this process; else null. */
+private fun testCall(call: ApplicationCall, method: String): HttpCalls.Call? {
+    val test = Core.tests()?.caller() ?: return null
+    val local = call.request.local
+    val query = call.request.queryString()
+    val url = "${local.scheme}://${call.request.headers[HttpHeaders.Host] ?: local.serverHost}${call.request.path()}" +
+        if (query.isEmpty()) "" else "?$query"
+    return runCatching { HttpCalls.start(test, method, java.net.URI(url)) }.getOrNull()
 }
 
 /**

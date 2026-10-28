@@ -1,0 +1,2 @@
+dev.tracepanel.spring.TracepanelAutoConfiguration
+dev.tracepanel.spring.TracepanelWebAutoConfiguration
