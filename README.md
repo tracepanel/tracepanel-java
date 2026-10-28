@@ -4,27 +4,43 @@
 [![Maven Central](https://img.shields.io/maven-central/v/dev.tracepanel/tracepanel-core)](https://central.sonatype.com/namespace/dev.tracepanel)
 [![Java](https://img.shields.io/badge/java-17%2B-blue)](https://github.com/tracepanel/tracepanel-java#tracepanel-for-java)
 
-Tracepanel shows what each request of your app did: its SQL with the line of
-your code that ran each statement, its logs and its errors. It finds what to
-fix: N+1 queries, duplicates, slow SQL, long transactions. A badge on your
-pages opens the panel, and the console lists every request.
+**See what your Spring Boot or Ktor app is really doing.** Tracepanel records
+each request, `@Async` task, scheduled job and message of your app, in Java or
+Kotlin, with its SQL queries, Redis and MongoDB commands, outgoing HTTP calls,
+logs and errors. It points out N+1 queries, duplicates, slow SQL and long
+transactions, and names the line of code to fix. You read it in a panel on
+your pages and in a console.
 
-This SDK records the requests of a Spring Boot or a Ktor app, in Java or
-Kotlin, and sends them to Tracepanel's agent, which keeps them, finds the
-issues and serves the console. It needs Java 17 or later.
+It runs while you develop, and everything stays on your machine.
 
-| Framework | Library | Versions |
-| --- | --- | --- |
-| [Spring Boot](#spring-boot) | `dev.tracepanel:tracepanel-spring-boot` | Spring Boot 3.5 and 4, Spring MVC |
-| [Ktor](#ktor) | `dev.tracepanel:tracepanel-ktor` | Ktor 3 |
-| [JUnit](#in-tests) | `dev.tracepanel:tracepanel-junit` | JUnit Jupiter 5.12 and later, JUnit 6 |
+[![A 40-second demo of a Spring Boot store: Swagger UI's Execute on an endpoint, and the panel docked under it with the request's call tree, an N+1 with its query plan and the Java line it runs from, an @Async task, the CPU profile, and the same call after the fix](docs/images/demo-video.jpg)](https://tracepanel.dev/video/demo-java.mp4)
 
-## Spring Boot
+▶ [Watch the 40-second demo](https://tracepanel.dev/video/demo-java.mp4)
 
-### Install
+## Works with
 
-Add the dependency for development only, so the production build leaves it
-out. With Gradle:
+| | Supported |
+| --- | --- |
+| **Java** | 17 and later, apps in Java or Kotlin. |
+| **Frameworks** | Spring Boot 3.5 and 4 with Spring MVC, Kotlin suspend functions, `Callable` and `DeferredResult` handlers included. Ktor 3. WebFlux apps aren't supported yet. |
+| **Databases** | SQL through JDBC, whatever runs it: Spring Data JPA, Hibernate, `JdbcTemplate`, jOOQ, Exposed. Transactions. EXPLAIN on PostgreSQL, MySQL, H2 and SQLite. |
+| **Redis and MongoDB** | Lettuce (Spring Data Redis, the cache) and Spring Data MongoDB, with their own N+1 and duplicates. |
+| **Messaging** | Kafka and RabbitMQ: what a `KafkaTemplate` or a `RabbitTemplate` sends, and each message a `@KafkaListener` or `@RabbitListener` receives as a trace of its own, linked to the one that sent it. |
+| **HTTP clients** | `RestClient`, `RestTemplate`, `WebClient` and the JDK's `HttpClient`, each call with a `traceparent`. Ktor's client through `TracepanelClient`. |
+| **Background work** | `@Async` methods as tasks, linked to the request that queued them; `@Scheduled` methods, `CommandLineRunner`s and `ApplicationRunner`s as jobs; the tasks in flight listed live. |
+| **Logs** | Logback and Log4j 2, each record on the request or task that made it, with its line, MDC and exception. |
+| **Errors** | Thrown in a handler, with your frames and the source around them. |
+| **Profiling** | Where a request's time goes in code, as a flame graph, when you ask for it. |
+| **Browser** | The badge and its panel on your app's HTML pages and its Swagger UI. |
+| **Tests** | JUnit Jupiter 5.12 and later, and JUnit 6, through `tracepanel-junit`: a test that makes an N+1 or duplicate queries fails. See [In tests](#in-tests). |
+
+The settings and what each integration records are in the
+[Java docs](https://tracepanel.dev/docs/java).
+
+## Install
+
+Spring Boot: add the dependency for development only, so the production build
+leaves it out. With Gradle:
 
 ```kotlin
 // build.gradle.kts
@@ -50,6 +66,22 @@ With Maven, add it in a profile that only development runs use:
 </profiles>
 ```
 
+Ktor:
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("dev.tracepanel:tracepanel-ktor:0.5.1")
+}
+```
+
+The SDK downloads its agent, which keeps the traces and serves the console,
+the first time it runs (see [In every app](#in-every-app)).
+
+## Setup
+
+### Spring Boot
+
 Run the app with Spring's `dev` profile, or with DevTools among its
 dependencies: `./gradlew bootRun --args='--spring.profiles.active=dev'`, or
 `./mvnw spring-boot:run -Pdev -Dspring-boot.run.profiles=dev` (`-Pdev` is
@@ -64,9 +96,42 @@ off, even if the dependency reached the build by mistake, and says so once in
 the log. `TRACEPANEL_ENABLED=1` turns it on anyway, `TRACEPANEL_ENABLED=0`
 off.
 
-![The Tracepanel panel docked under a Spring Boot app's Swagger UI, showing the call tree of GET /api/catalog/products with two N+1 queries](docs/images/spring-boot.png)
+### Ktor
 
-### What it records
+Install the plugin. Ktor has no dependency injection to find your DataSource
+or your HTTP client by, so you hand them over:
+
+```kotlin
+fun Application.module() {
+    install(Tracepanel)
+    val db = Database.connect(Jdbc.dataSource(hikari, "default"))
+    val http = HttpClient(CIO) { install(TracepanelClient) }
+}
+```
+
+Tracepanel is on in Ktor's development mode (`-Dio.ktor.development=true`,
+or `ktor.development` in the config), or with `TRACEPANEL_ENABLED=1`. The
+dependency goes into the production build, where it stays off. The console
+is at `/__tracepanel__/` on your app.
+
+## What it looks like
+
+Each request shows its call tree, with the SQL queries, the calls and the
+issues in it. Here a Spring Boot store on Postgres lists its products from
+Swagger UI, and Hibernate loads each product's category and brand, and its
+rating, in a query of its own:
+
+![A Spring Boot app's Swagger UI with an endpoint run and the start of its 200 response, and the panel docked under it with the same request's call tree: the @Async task it queued and its three N+1 queries](docs/images/panel-call-tree.png)
+
+The panel lists the requests the page made, here Swagger UI's Execute and the
+`@Async` task it queued. Each issue names the line of Java that ran it and the
+fix:
+
+![The same Swagger UI with the panel docked under it on that request's Issues tab: each N+1 with the line in CatalogController.java it comes from and the fix](docs/images/panel-issues.png)
+
+## What it records
+
+### Spring Boot
 
 - Each request, named by its route (`GET /owners/{id}`), with the controller
   method that served it.
@@ -103,36 +168,7 @@ off.
 
 WebFlux apps aren't supported yet.
 
-## Ktor
-
-### Install
-
-```kotlin
-// build.gradle.kts
-dependencies {
-    implementation("dev.tracepanel:tracepanel-ktor:0.5.1")
-}
-```
-
-Install the plugin. Ktor has no dependency injection to find your DataSource
-or your HTTP client by, so you hand them over:
-
-```kotlin
-fun Application.module() {
-    install(Tracepanel)
-    val db = Database.connect(Jdbc.dataSource(hikari, "default"))
-    val http = HttpClient(CIO) { install(TracepanelClient) }
-}
-```
-
-Tracepanel is on in Ktor's development mode (`-Dio.ktor.development=true`,
-or `ktor.development` in the config), or with `TRACEPANEL_ENABLED=1`. The
-dependency goes into the production build, where it stays off. The console
-is at `/__tracepanel__/` on your app.
-
-![The Tracepanel panel docked under a Ktor app's Swagger UI, showing the call tree of GET /api/catalog/products with three N+1 queries](docs/images/ktor.png)
-
-### What it records
+### Ktor
 
 - Each call, named by its route (`GET /books/{id}`), with its handler as a
   span of the same name. Its coroutines carry the trace to every thread
@@ -356,6 +392,20 @@ cosign verify-blob tracepanel-core-VERSION.jar \
 Both pass only for a file that this repository's release workflow built and
 published from that version's tag.
 
+## Documentation
+
+The documentation is at
+[tracepanel.dev/docs/java](https://tracepanel.dev/docs/java): installing,
+the integrations and the settings. The panel, the console and the issues are
+the same in every framework, under
+[tracepanel.dev/docs](https://tracepanel.dev/docs).
+
+## Links
+
+- [tracepanel](https://github.com/tracepanel/tracepanel): what Tracepanel finds,
+  how it works, privacy, and the agent this SDK downloads
+- [CHANGELOG.md](CHANGELOG.md): what changed in each version
+
 ## Build
 
 ```bash
@@ -379,6 +429,7 @@ a project does, unless `TEST_AGENT_BIN` names one.
 
 ## License
 
-MIT. The agent the SDK downloads is under the
+Licensed under the [MIT License](LICENSE). The agent the SDK downloads,
+`tracepanel-agent`, is free to use under the
 [FSL-1.1-ALv2](https://github.com/tracepanel/tracepanel/blob/main/LICENSE):
 source available, and Apache-2.0 two years after each release.
