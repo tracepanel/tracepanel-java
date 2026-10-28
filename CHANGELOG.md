@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-10-28)
+
+The SDK downloads `tracepanel-agent` 0.6.0 the first time. Its N+1 hint is
+the ORM's own fix for Hibernate and Exposed, which this SDK now names. Its
+MCP server reads profiles: `get_profile` gives a profiled trace's CPU or
+memory profile as text, `get_trace` says when a trace was profiled, and
+`compare_traces` shows how the profile changed, so an AI coding agent can
+profile a request, fix the code and check the result without the console.
 
 ### Added
 
@@ -18,6 +25,10 @@
   JavaScript SDK's Vitest plugin do.
 - Spring Boot's test slices (`@WebMvcTest`, `@JdbcTest`, `@DataJpaTest`,
   `@DataJdbcTest`, `@JooqTest`) are traced as a full `@SpringBootTest` is.
+
+### Changed
+
+- Downloads `tracepanel-agent` 0.6.0, rather than 0.5.1.
 
 ### Fixed
 
