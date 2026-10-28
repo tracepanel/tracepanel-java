@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- A query Hibernate makes (JPA, Spring Data JPA) is recorded with
+  `db.client` `hibernate`, and one Exposed makes with `exposed`, from the
+  frames that made it; any other stays `jdbc`. An agent that knows the ORM
+  hints at its N+1 fix: `join fetch`, `@EntityGraph` or `@BatchSize` for
+  Hibernate, `.with()` or `load()` for Exposed.
+
 ### Fixed
 
 - With `TRACEPANEL_PROFILE=1`, the console's Profile button shows on: the

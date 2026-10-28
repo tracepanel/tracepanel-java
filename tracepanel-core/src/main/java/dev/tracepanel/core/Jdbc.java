@@ -225,6 +225,8 @@ public final class Jdbc {
             attrs.put("db.params_hash", params.isEmpty() ? null : Sql.hash(Json.write(values)));
             attrs.put("db.many", many);
             Tracepanel tracepanel = Tracepanel.get();
+            // The ORM that made the query, when the agent knows its N+1 fix (join fetch, .with()): Hibernate, Exposed.
+            if (tracepanel != null) attrs.put("db.client", tracepanel.stacks().client());
             String origin = tracepanel == null ? null : tracepanel.stacks().origin();
             attrs.put("code.origin", origin);
             // A query only library code made (Jackson writing a lazy relation): which library code asked for it.

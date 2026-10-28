@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
  * The app's code in a stack: where a query or a log came from ("com/shop/BookService.java:42 in list"), and an
@@ -39,6 +40,8 @@ public final class Stacks {
             "org.jooq.", "org.apache.ibatis.", "org.mybatis.", "com.zaxxer.", "org.apache.tomcat.jdbc.",
             "com.mchange.", "org.postgresql.", "com.mysql.", "org.mariadb.", "org.h2.", "org.hsqldb.", "oracle.jdbc.",
             "com.microsoft.sqlserver.", "org.sqlite.", "org.apache.derby.", "com.ibm.db2.", "net.sourceforge.jtds.");
+    /** The ORMs the agent knows the N+1 fix of, by their frames' package: what a query's db.client names. */
+    private static final Map<String, String> ORMS = Map.of("org.hibernate.", "hibernate", "org.jetbrains.exposed.", "exposed");
     private static final String[] SOURCE_ROOTS = {"src/main/java", "src/main/kotlin", "src/main/groovy", "src/test/java"};
     private static final int CONTEXT_LINES = 5;
 
@@ -87,6 +90,29 @@ public final class Stacks {
                         .findFirst())
                 .map(frame -> where(frame.getClassName(), frame.getFileName(), frame.getLineNumber(), frame.getMethodName()))
                 .orElse(null);
+    }
+
+    /**
+     * The ORM that makes the query being made now, from the query layers on top of the stack: "hibernate" (JPA and
+     * Spring Data JPA run on it), "exposed", or "jdbc" for any other (jOOQ, MyBatis, JdbcTemplate, plain JDBC).
+     */
+    public String client() {
+        return StackWalker.getInstance().walk(frames -> client(frames.map(StackWalker.StackFrame::getClassName)));
+    }
+
+    /** The ORM of a stack's classes, the newest call first; past the query layers is the code that asked for the rows. */
+    static String client(Stream<String> classNames) {
+        return classNames.takeWhile(name -> queryLayer(name) || generated(name))
+                .map(Stacks::orm)
+                .filter(orm -> orm != null)
+                .findFirst()
+                .orElse("jdbc");
+    }
+
+    private static String orm(String className) {
+        if (className.startsWith("org.hibernate.validator.")) return null;
+        for (Map.Entry<String, String> orm : ORMS.entrySet()) if (className.startsWith(orm.getKey())) return orm.getValue();
+        return null;
     }
 
     static boolean queryLayer(String className) {
