@@ -182,6 +182,20 @@ public final class Sender {
         reader.start();
     }
 
+    /**
+     * What the app's traces hold beyond the usual, said in the hello: a profile when one is asked for, and whether the
+     * settings profile every trace (profile_all: the console's Profile button shows on), the request's details; and
+     * what it sends besides them (live_tasks: task events). No profile_memory: the SDK has no memory profiler.
+     */
+    static List<String> capabilities(Config config, Set<String> sends) {
+        List<String> capabilities = new ArrayList<>();
+        if (config.profileEnabled()) capabilities.add("profile");
+        if (config.profileEnabled() && config.profile()) capabilities.add("profile_all");
+        if (config.captureRequest()) capabilities.add("request");
+        capabilities.addAll(new TreeSet<>(sends));
+        return capabilities;
+    }
+
     /** A connection the agent accepted after the hello line, or null. */
     private Connection handshake(String address) {
         try {
@@ -216,13 +230,8 @@ public final class Sender {
             // What the app offers the console, the one place it says so: the agent alone answers api/capabilities.
             // EXPLAIN runs on the app's database, answered at the app's own console (Console), not down here.
             hello.put("service", config.service());
-            // What its traces hold beyond the usual: a profile when one is asked for, the request's details; and what
-            // it sends besides them (live_tasks: task events).
-            List<String> capabilities = new ArrayList<>();
-            if (config.profileEnabled()) capabilities.add("profile");
-            if (config.captureRequest()) capabilities.add("request");
             Set<String> sends = Set.copyOf(SENDS);
-            capabilities.addAll(new TreeSet<>(sends));
+            List<String> capabilities = capabilities(config, sends);
             if (!capabilities.isEmpty()) hello.put("capabilities", capabilities);
             if (Jdbc.hasDatabases()) hello.put("console", List.of("explain"));
             out.write((Json.write(hello) + "\n").getBytes(StandardCharsets.UTF_8));

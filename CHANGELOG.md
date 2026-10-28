@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- With `TRACEPANEL_PROFILE=1`, the console's Profile button shows on: the
+  SDK now tells the agent that it profiles every trace, as the Python and
+  JavaScript SDKs do.
+
 ## 0.5.1 (2026-10-26)
 
 The SDK downloads `tracepanel-agent` 0.5.1 the first time. Its console and
