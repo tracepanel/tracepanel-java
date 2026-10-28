@@ -60,10 +60,16 @@ final class TracedHttpClient extends HttpClient {
         });
     }
 
-    /** The request with the call's traceparent, unless the app set its own. */
+    /** The request with the call's traceparent and what its trace asks to profile, unless the app set its own. */
     private static HttpRequest traced(HttpRequest request, HttpCalls.Call call) {
-        if (request.headers().firstValue(W3c.HEADER).isPresent()) return request;
-        return HttpRequest.newBuilder(request, (name, value) -> true).header(W3c.HEADER, call.traceparent()).build();
+        boolean parent = request.headers().firstValue(W3c.HEADER).isEmpty();
+        String profile = call.profile();
+        boolean asks = profile != null && request.headers().firstValue(Profiler.HEADER).isEmpty();
+        if (!parent && !asks) return request;
+        HttpRequest.Builder builder = HttpRequest.newBuilder(request, (name, value) -> true);
+        if (parent) builder.header(W3c.HEADER, call.traceparent());
+        if (asks) builder.header(Profiler.HEADER, profile);
+        return builder.build();
     }
 
     @Override

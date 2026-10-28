@@ -31,6 +31,23 @@ class ProfilerTest {
     }
 
     @Test
+    void what_a_request_asks_for_is_the_profile_or_its_memory_too_by_its_header_else_the_cookie() {
+        assertEquals("1", Profiler.asked("1", null));
+        assertEquals("memory", Profiler.asked(" memory ", null));
+        assertEquals("memory", Profiler.asked(null, "theme=dark; tracepanel_profile=memory"));
+        assertEquals("1", Profiler.asked(null, "tracepanel_profile=1"));
+        // The header wins over the cookie.
+        assertEquals("1", Profiler.asked("1", "tracepanel_profile=memory"));
+        assertEquals("memory", Profiler.asked("0", "tracepanel_profile=memory"));
+        // "memory" profiles the time here: this SDK has no memory profile.
+        assertTrue(Profiler.requested("memory", null));
+
+        assertNull(Profiler.asked("0", null));
+        assertNull(Profiler.asked("yes", "tracepanel_profile=2"));
+        assertNull(Profiler.asked(null, null));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void stacks_are_counted_outermost_first_each_function_once_without_tracepanel_s_frames() {
         Profiler.Recording recording = new Profiler.Recording();

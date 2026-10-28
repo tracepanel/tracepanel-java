@@ -293,6 +293,21 @@ class SpringTracingTest {
                 .containsEntry("w3c.trace_id", ((Map<String, Object>) caller.get("attrs")).get("w3c.trace_id"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"rest-client", "rest-template", "web-client", "jdk"})
+    void a_call_asks_the_app_it_reaches_for_the_profile_its_request_asked_for(String client) throws Exception {
+        String path = "/relay/" + client + "/asked";
+
+        assertThat(get(path, "X-Tracepanel-Profile", "1").body()).isEqualTo("1");
+        assertThat(get(path, "X-Tracepanel-Profile", "memory").body()).isEqualTo("memory");
+        assertThat(get(path, "Cookie", "theme=dark; tracepanel_profile=memory").body()).isEqualTo("memory");
+        assertThat(get(path).body()).isEqualTo("none");
+        assertThat(get(path, "X-Tracepanel-Profile", "0").body()).isEqualTo("none");
+
+        // The app's own header is the one that goes.
+        assertThat(get(path + "?own=1", "X-Tracepanel-Profile", "memory").body()).isEqualTo("1");
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void work_a_proxied_bean_hands_to_the_executor_is_the_request_s_not_a_task() throws Exception {

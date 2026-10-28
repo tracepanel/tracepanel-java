@@ -23,6 +23,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class Profiler {
     public static final String HEADER = "X-Tracepanel-Profile";
     public static final String COOKIE = "tracepanel_profile";
+    /** What a request asks for: the profile ("1"), or the profile with its memory ("memory", the time here). */
+    public static final String TIME = "1";
+    public static final String MEMORY = "memory";
     /** How deep a stack is kept: a recursion beyond it is cut, its outermost frames kept. */
     static final int MAX_DEPTH = 256;
     /** Distinct stacks one trace keeps; the rest are counted as one "(other)" frame, so a profile stays small. */
@@ -43,19 +46,35 @@ public final class Profiler {
         this.intervalMs = Math.max(intervalMs, 1);
     }
 
-    /** Whether a request asks to be profiled: the X-Tracepanel-Profile: 1 header, or the cookie a browser sends. */
-    public static boolean requested(String header, String cookies) {
-        return (header != null && header.strip().equals("1")) || byCookie(cookies);
+    /** What the X-Tracepanel-Profile header asks for, else the panel's cookie: "1", "memory", or null for nothing. */
+    public static String asked(String header, String cookies) {
+        String asked = asking(header);
+        return asked != null ? asked : byCookie(cookies);
     }
 
-    /** Whether the request carries the panel's cookie: the Profile button sets it, for the next request. */
-    static boolean byCookie(String cookies) {
-        if (cookies == null || !cookies.contains(COOKIE)) return false;
+    /**
+     * Whether a request asks to be profiled: the X-Tracepanel-Profile header ("1", or "memory", which profiles its
+     * time here: this SDK has no memory profile), or the cookie a browser sends.
+     */
+    public static boolean requested(String header, String cookies) {
+        return asked(header, cookies) != null;
+    }
+
+    /** "1" or "memory" as they are; anything else asks for nothing. */
+    static String asking(String value) {
+        if (value == null) return null;
+        String stripped = value.strip();
+        return stripped.equals(TIME) || stripped.equals(MEMORY) ? stripped : null;
+    }
+
+    /** What the panel's cookie asks for, when the request carries it: the Profile button sets it. */
+    static String byCookie(String cookies) {
+        if (cookies == null || !cookies.contains(COOKIE)) return null;
         for (String part : cookies.split(";")) {
             int equals = part.indexOf('=');
-            if (equals > 0 && part.substring(0, equals).strip().equals(COOKIE)) return part.substring(equals + 1).strip().equals("1");
+            if (equals > 0 && part.substring(0, equals).strip().equals(COOKIE)) return asking(part.substring(equals + 1));
         }
-        return false;
+        return null;
     }
 
     /** A function in the stacks: its class and method. */

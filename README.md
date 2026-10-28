@@ -303,9 +303,17 @@ all of it out.
 The console's Profile button profiles the next request: a sampling
 profiler reads the stack of the thread running it every millisecond, and
 the trace shows where its time went as a flame graph. A request with an
-`X-Tracepanel-Profile: 1` header is profiled too, and
-`TRACEPANEL_PROFILE=1` profiles every trace. A request nobody asked to
-profile costs nothing.
+`X-Tracepanel-Profile: 1` header is profiled too (`memory` profiles its
+time here: this SDK has no memory profile), and `TRACEPANEL_PROFILE=1`
+profiles every trace. A request nobody asked to profile costs nothing.
+
+A profile asked for follows the whole chain: the calls such a request makes
+to other apps (RestClient, RestTemplate, WebClient, the JDK's HttpClient,
+Ktor's client with `TracepanelClient`) carry the same
+`X-Tracepanel-Profile` value next to their `traceparent`, so the services
+it calls profile their traces too. A trace only `TRACEPANEL_PROFILE`
+profiles asks nothing of them: each app's own setting decides for its
+traces. A header the app sets itself is the one that goes.
 
 The agent is a program of its own, which keeps the traces and finds the
 issues. You don't install it: the SDK downloads its own version of it the

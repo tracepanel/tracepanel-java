@@ -156,6 +156,12 @@ class KtorTracingTest {
                 get("/sold-out") { throw OutOfStock("only 2 left") }
                 get("/no-price") { throw PriceMissing("no price for book 3") }
                 get("/relay") { call.respondText(appClient.get("/books/2").bodyAsText()) }
+                // What a call is asked to profile for, as the app it reaches reads it; `own`: the app's own header.
+                get("/asked") { call.respondText(call.request.headers["X-Tracepanel-Profile"] ?: "none") }
+                get("/relay/asked") {
+                    val own = call.request.queryParameters["own"]
+                    call.respondText(appClient.get("/asked") { if (own != null) header("X-Tracepanel-Profile", own) }.bodyAsText())
+                }
                 post("/orders") {
                     val order = call.receiveText()
                     call.response.header("X-Order", "17")
@@ -339,6 +345,18 @@ class KtorTracingTest {
         assertEquals("GET localhost/books/2", call["name"])
         assertEquals(200, (call["attrs"] as Map<*, *>)["http.response.status_code"])
         assertEquals((call["attrs"] as Map<*, *>)["w3c.span_id"], attrs(called)["w3c.parent_span_id"])
+    }
+
+    @Test
+    fun a_call_asks_the_app_it_reaches_for_the_profile_its_request_asked_for() = app {
+        assertEquals("1", client.get("/relay/asked") { header("X-Tracepanel-Profile", "1") }.bodyAsText())
+        assertEquals("memory", client.get("/relay/asked") { header("X-Tracepanel-Profile", "memory") }.bodyAsText())
+        assertEquals("memory", client.get("/relay/asked") { header("Cookie", "tracepanel_profile=memory") }.bodyAsText())
+        assertEquals("none", client.get("/relay/asked").bodyAsText())
+        assertEquals("none", client.get("/relay/asked") { header("X-Tracepanel-Profile", "0") }.bodyAsText())
+
+        // The app's own header is the one that goes.
+        assertEquals("1", client.get("/relay/asked?own=1") { header("X-Tracepanel-Profile", "memory") }.bodyAsText())
     }
 
     @Test

@@ -9,7 +9,8 @@ import java.util.Map;
  * Calls the app makes to HTTP APIs: each an http.client span of the current trace (GET api.example.com/users/1, with
  * the port when it isn't the scheme's),
  * with its URL, status and the app's line that made it. A framework's client integration starts a call where the
- * app makes it, puts its traceparent on the request, and ends it with the answer.
+ * app makes it, puts its traceparent on the request (and X-Tracepanel-Profile when its trace was asked to be profiled:
+ * profile()), and ends it with the answer.
  */
 public final class HttpCalls {
     private static final int ERROR_STATUS = 500;
@@ -71,6 +72,15 @@ public final class HttpCalls {
         /** The traceparent the request carries, so the app it reaches links its trace to this call. */
         public String traceparent() {
             return W3c.outgoing(trace, spanId);
+        }
+
+        /**
+         * What the request asks the app it reaches to profile its trace for ("1", "memory"): what this call's trace
+         * was asked for by its own request, else null. Sent as the X-Tracepanel-Profile header next to the
+         * traceparent, so a profile asked for in the browser follows the whole chain.
+         */
+        public String profile() {
+            return trace.asked;
         }
 
         /** It answered with `status`. */

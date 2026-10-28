@@ -1,6 +1,7 @@
 package dev.tracepanel.spring;
 
 import dev.tracepanel.core.HttpCalls;
+import dev.tracepanel.core.Profiler;
 import dev.tracepanel.core.W3c;
 import java.io.IOException;
 import org.springframework.http.HttpRequest;
@@ -8,7 +9,8 @@ import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 
-/** A RestClient's or a RestTemplate's call to an HTTP API, an http.client span with a traceparent on the request. */
+/** A RestClient's or a RestTemplate's call to an HTTP API, an http.client span with a traceparent on the request
+ * (and X-Tracepanel-Profile when its trace was asked to be profiled). */
 final class TracedRequests implements ClientHttpRequestInterceptor {
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
@@ -17,6 +19,10 @@ final class TracedRequests implements ClientHttpRequestInterceptor {
         if (call == null) return execution.execute(request, body);
         // The app's own traceparent, if it set one, is the one that goes.
         if (request.getHeaders().getFirst(W3c.HEADER) == null) request.getHeaders().set(W3c.HEADER, call.traceparent());
+        // A profile its trace's request asked for: the app it reaches profiles its trace too.
+        if (call.profile() != null && request.getHeaders().getFirst(Profiler.HEADER) == null) {
+            request.getHeaders().set(Profiler.HEADER, call.profile());
+        }
         try {
             ClientHttpResponse response = nested(() -> execution.execute(request, body));
             call.end(response.getStatusCode().value());
