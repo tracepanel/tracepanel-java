@@ -19,6 +19,8 @@ import io.ktor.server.sessions.cookie
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import lib.countBooks
+import org.hibernate.loader.loadBook
+import org.jetbrains.exposed.dao.findBook
 import io.ktor.http.HttpHeaders
 import io.ktor.server.response.header
 import io.ktor.server.response.respondBytesWriter
@@ -165,6 +167,8 @@ class KtorTracingTest {
                     call.respondRedirect("/page")
                 }
                 get("/shelves/count") { call.respondText(countBooks(db).toString()) }
+                get("/orm/hibernate") { call.respondText(loadBook(db, 1)) }
+                get("/orm/exposed") { call.respondText(findBook(db, 2)) }
                 get("/cart") {
                     call.sessions.set(Cart("3 books", "s3cret"))
                     call.respondText("added")
@@ -413,6 +417,26 @@ class KtorTracingTest {
 
         assertEquals(null, count["code.origin"])
         assertTrue(Regex("""lib/Shelf\.kt:\d+ in invokeSuspend""").matches(count["code.caller"].toString()), count.toString())
+    }
+
+    @Test
+    fun a_query_names_the_orm_that_made_it_or_jdbc() = app {
+        assertEquals("One", client.get("/orm/hibernate").bodyAsText())
+        assertEquals("Two", client.get("/orm/exposed").bodyAsText())
+        client.get("/books/3")
+        val db = { path: String -> (spans(FakeAgent.traceAt(path), "sql").first()["attrs"] as Map<*, *>).filterKeys { it.toString().startsWith("db.") && it != "db.response.returned_rows" } }
+
+        assertEquals<Map<*, *>>(
+            mapOf(
+                "db.system" to "h2", "db.vendor" to "h2", "db.client" to "hibernate", "db.alias" to "default",
+                "db.namespace" to "BOOKS", "db.statement" to "select b1_0.title from book b1_0 where b1_0.id=?",
+                "db.fingerprint" to "select b1_0.title from book b1_0 where b1_0.id=?", "db.params" to listOf(1),
+                "db.params_hash" to db("/orm/hibernate")["db.params_hash"], "db.many" to false,
+            ),
+            db("/orm/hibernate"),
+        )
+        assertEquals("exposed", db("/orm/exposed")["db.client"])
+        assertEquals("jdbc", db("/books/3")["db.client"])
     }
 
     @Test
