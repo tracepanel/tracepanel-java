@@ -1,5 +1,6 @@
 package dev.tracepanel.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.DataInputStream;
@@ -18,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
@@ -185,6 +187,40 @@ class SenderTest {
             sender.submit(Map.of("id", "after"));
 
             assertTrue(second.got("after"), "the first trace after the restart reached the new agent");
+        }
+    }
+
+    @Test
+    void the_hello_says_every_trace_is_profiled_when_the_settings_say_so() {
+        Set<String> sends = Set.of("live_tasks");
+
+        assertEquals(List.of("profile", "request", "live_tasks"),
+                Sender.capabilities(Config.load(Map.of(), "shop"), sends));
+        assertEquals(List.of("profile", "profile_all", "request", "live_tasks"),
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1"), "shop"), sends));
+        assertEquals(List.of("profile", "profile_all"),
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_CAPTURE_REQUEST", "0"), "shop"), Set.of()));
+
+        // Profiling off: nothing profiles, whatever TRACEPANEL_PROFILE says.
+        assertEquals(List.of("request"),
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), "shop"), Set.of()));
+    }
+
+    @Test
+    void the_hello_on_the_wire_carries_profile_all(@TempDir Path root) throws Exception {
+        Path store = root.resolve(".tracepanel");
+        Files.createDirectories(store);
+        Map<String, String> env = Map.of(
+                "TRACEPANEL_ROOT", root.toString(),
+                "TRACEPANEL_DIR", store.toString(),
+                "TRACEPANEL_PROFILE", "1",
+                "TRACEPANEL_CAPTURE_REQUEST", "0");
+        try (OneAgent agent = new OneAgent()) {
+            Files.writeString(store.resolve("agent.addr"), agent.address() + "\n");
+            new Sender(Config.load(env, "shop"), new Agent(store, env)).submit(Map.of("id", "profiled"));
+
+            assertTrue(agent.got("profiled"));
+            assertTrue(agent.hellos.get(0).contains("\"capabilities\":[\"profile\",\"profile_all\""), agent.hellos.get(0));
         }
     }
 }

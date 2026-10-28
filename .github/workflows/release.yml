@@ -110,8 +110,8 @@ jobs:
         run: |
           unzip -q bundle/*.zip -d files
           find files -type f \( -name '*.jar' -o -name '*.pom' -o -name '*.module' \) | sort | tee subjects.txt
-          # Five of each module: tracepanel-core, tracepanel-spring-boot and tracepanel-ktor.
-          [ "$(wc -l < subjects.txt)" -ge 15 ] || { echo "::error::fewer than 15 files in the bundle" && exit 1; }
+          # Five of each module: tracepanel-core, tracepanel-spring-boot, tracepanel-ktor and tracepanel-junit.
+          [ "$(wc -l < subjects.txt)" -ge 20 ] || { echo "::error::fewer than 20 files in the bundle" && exit 1; }
       - uses: actions/attest@v4
         with:
           subject-path: |

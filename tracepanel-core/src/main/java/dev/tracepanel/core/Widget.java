@@ -86,6 +86,8 @@ public final class Widget {
      * page as it was when it has no head.
      */
     public static String decorate(String html, Trace trace, String method, int status, String prefix, String runtime) {
+        // Under tests, the page as the app made it: the tests read it.
+        if (Tracepanel.tests() != null) return html;
         Matcher head = HEAD.matcher(html);
         if (!head.find()) return html;
         String tag = script(trace, method, status, prefix, runtime);
@@ -94,6 +96,7 @@ public final class Widget {
 
     /** The widget's tag, carrying the page's own request; ASCII whatever the page's encoding. */
     public static String script(Trace trace, String method, int status, String prefix, String runtime) {
+        if (Tracepanel.tests() != null) return "";
         return "<script src=\"" + prefix + "widget.min.js\" data-tracepanel-api=\"" + prefix + "\""
                 + attr("id", trace.id()) + attr("method", method) + attr("status", String.valueOf(status))
                 + attr("total", format(trace.elapsedMillis())) + attr("db", format(trace.dbMillis()))

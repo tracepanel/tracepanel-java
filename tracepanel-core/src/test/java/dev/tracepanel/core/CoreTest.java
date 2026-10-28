@@ -113,6 +113,39 @@ class CoreTest {
     }
 
     @Test
+    void a_query_names_the_orm_on_top_of_its_stack_or_jdbc() {
+        // Hibernate loading a lazy to-one as the app reads it, then a Spring Data JPA repository's query.
+        assertEquals("hibernate", Stacks.client(java.util.stream.Stream.of(
+                "org.postgresql.jdbc.PgPreparedStatement", "com.zaxxer.hikari.pool.HikariProxyPreparedStatement",
+                "dev.tracepanel.core.Jdbc$Statements", "jdk.proxy2.$Proxy91",
+                "org.hibernate.sql.results.jdbc.internal.DeferredResultSetAccess",
+                "org.hibernate.loader.ast.internal.SingleIdLoadPlan", "org.hibernate.proxy.AbstractLazyInitializer",
+                "com.shop.Author$HibernateProxy$Xyz", "com.shop.BookService")));
+        assertEquals("hibernate", Stacks.client(java.util.stream.Stream.of(
+                "org.postgresql.jdbc.PgPreparedStatement", "dev.tracepanel.core.Jdbc$Statements",
+                "org.hibernate.query.sqm.internal.ConcreteSqmSelectQueryPlan",
+                "org.springframework.data.jpa.repository.query.JpaQueryExecution",
+                "org.springframework.data.repository.core.support.RepositoryMethodInvoker", "jdk.proxy2.$Proxy120",
+                "com.shop.BookController")));
+        // Exposed's DAO, under its 1.0 packages.
+        assertEquals("exposed", Stacks.client(java.util.stream.Stream.of(
+                "org.h2.jdbc.JdbcPreparedStatement", "dev.tracepanel.core.Jdbc$Statements",
+                "org.jetbrains.exposed.v1.jdbc.statements.jdbc.JdbcPreparedStatementImpl",
+                "org.jetbrains.exposed.v1.dao.EntityClass", "com.shop.BooksKt")));
+
+        // JdbcTemplate, jOOQ, plain JDBC: no ORM the agent has a fix for.
+        assertEquals("jdbc", Stacks.client(java.util.stream.Stream.of(
+                "org.postgresql.jdbc.PgPreparedStatement", "org.springframework.jdbc.core.JdbcTemplate", "com.shop.Reports")));
+        assertEquals("jdbc", Stacks.client(java.util.stream.Stream.of(
+                "org.postgresql.jdbc.PgPreparedStatement", "org.jooq.impl.AbstractQuery", "com.shop.Reports")));
+        assertEquals("jdbc", Stacks.client(java.util.stream.Stream.of("org.h2.jdbc.JdbcPreparedStatement", "com.shop.Reports")));
+        // Hibernate past the code that asked: JdbcTemplate run from the app's listener on a Hibernate flush.
+        assertEquals("jdbc", Stacks.client(java.util.stream.Stream.of(
+                "org.postgresql.jdbc.PgPreparedStatement", "org.springframework.jdbc.core.JdbcTemplate",
+                "com.shop.AuditListener", "org.hibernate.event.internal.DefaultFlushEventListener")));
+    }
+
+    @Test
     void a_query_s_library_caller_is_past_the_orm_the_pool_and_the_driver() {
         assertTrue(Stacks.queryLayer("org.hibernate.collection.spi.AbstractPersistentCollection"));
         assertTrue(Stacks.queryLayer("org.springframework.data.repository.core.support.RepositoryMethodInvoker"));

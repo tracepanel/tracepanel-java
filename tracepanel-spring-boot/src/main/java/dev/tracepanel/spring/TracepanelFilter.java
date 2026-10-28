@@ -1,9 +1,11 @@
 package dev.tracepanel.spring;
 
 import dev.tracepanel.core.Console;
+import dev.tracepanel.core.HttpCalls;
 import dev.tracepanel.core.Profiler;
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.Tracepanel;
+import dev.tracepanel.core.W3c;
 import dev.tracepanel.core.Widget;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
@@ -15,6 +17,7 @@ import jakarta.servlet.ServletResponseWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -71,9 +74,13 @@ final class TracepanelFilter extends OncePerRequestFilter {
         attrs.put("service.role", "web");
         attrs.put("tracepanel.framework", framework);
         Matcher caller = TRACEPARENT.matcher(String.valueOf(request.getHeader("traceparent")));
+        // A test's request of the app without a traceparent (MockMvc, a test client): a call of the test's trace.
+        HttpCalls.Call testCall = caller.matches() ? null : testCall(request, method);
         if (caller.matches()) {
             attrs.put("w3c.trace_id", caller.group(1));
             attrs.put("w3c.parent_span_id", caller.group(2));
+        } else if (testCall != null) {
+            attrs.putAll(W3c.incoming(testCall.traceparent()));
         }
         // What the request carried, for the console's Request tab: the request the app gets keeps what it reads.
         HttpServletRequest handed = tracepanel.config().captureRequest() ? CapturedRequest.begin(request, attrs) : request;
@@ -95,10 +102,24 @@ final class TracepanelFilter extends OncePerRequestFilter {
             throw e;
         } finally {
             if (failure == null && request.isAsyncStarted()) {
-                later(trace, request, response, origin);
+                later(trace, request, response, origin, testCall);
             } else {
                 finish(trace, request, response, traced, origin, failure);
+                if (testCall != null) testCall.end(failure != null ? 500 : response.getStatus());
             }
+        }
+    }
+
+    /** The call of the running test's trace this request is, when a test made it in this process; else null. */
+    private static HttpCalls.Call testCall(HttpServletRequest request, String method) {
+        Tracepanel.Tests tests = Tracepanel.tests();
+        Trace test = tests == null ? null : tests.caller();
+        if (test == null) return null;
+        String query = request.getQueryString();
+        try {
+            return HttpCalls.start(test, method, URI.create(request.getRequestURL() + (query == null ? "" : "?" + query)));
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 
@@ -107,14 +128,17 @@ final class TracepanelFilter extends OncePerRequestFilter {
      * the answer (its page gets the widget there), and the trace ends with the response. This thread works for no
      * trace meanwhile.
      */
-    private void later(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin) {
-        Tracepanel.bind(null);
+    private void later(Trace trace, HttpServletRequest request, HttpServletResponse response, String origin,
+            HttpCalls.Call testCall) {
+        // The thread works for the trace it did before: none, or the test's that made this request with MockMvc.
+        Tracepanel.bind(trace.outer());
         request.getAsyncContext().addListener(new AsyncListener() {
             @Override
             public void onComplete(AsyncEvent event) {
                 outcome(trace, request, response, null);
                 details(trace, request, response);
                 tracepanel.finish(trace);
+                if (testCall != null) testCall.end(response.getStatus());
             }
 
             @Override
