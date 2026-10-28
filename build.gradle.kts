@@ -46,6 +46,13 @@ subprojects {
         useJUnitPlatform()
     }
 
+    // The tests on another Java than the toolchain's when -PtestJava names it: CI runs them on 17, the baseline, and
+    // on the latest LTS too.
+    providers.gradleProperty("testJava").orNull?.let { version ->
+        val launcher = the<JavaToolchainService>().launcherFor { languageVersion = JavaLanguageVersion.of(version) }
+        tasks.withType<Test>().configureEach { javaLauncher = launcher }
+    }
+
     // A doc comment here explains the code to its reader, not an API reference: javadoc doesn't lint it.
     tasks.withType<Javadoc>().configureEach {
         (options as StandardJavadocDocletOptions).addBooleanOption("Xdoclint:none", true)

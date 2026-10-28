@@ -1,9 +1,9 @@
 name: CI
 
-# The build and every test: on Spring Boot 4 and 3.5, and Ktor, with a MongoDB, a Redis, a Kafka and a RabbitMQ to
-# record calls to. Then the libraries as they would go to Maven Central, unsigned, into the local repository. A change
-# to the README, the changelog or the images alone builds nothing: `changes` says so, and the build is skipped, which
-# the branch's required check counts as passed.
+# The build and every test, on Java 17 (the baseline), 21 (the toolchain) and 25 (the latest LTS): on Spring Boot 4
+# and 3.5, and Ktor, with a MongoDB, a Redis, a Kafka and a RabbitMQ to record calls to. Then the libraries as they
+# would go to Maven Central, unsigned, into the local repository. A change to the README, the changelog or the images
+# alone builds nothing: `changes` says so, and the build is skipped, which the branch's required check counts as passed.
 on:
   push:
     branches: [main]
@@ -39,12 +39,16 @@ jobs:
           # Anything but the pages, the license and the README's images is code.
           if echo "$files" | grep -qvE '(\.md$|^LICENSE$|^docs/)'; then echo "code=true"; else echo "code=false"; fi >> "$GITHUB_OUTPUT"
 
-  check:
-    name: Build and test
+  test:
+    name: Test on Java ${{ matrix.java }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["17", "21", "25"]
     services:
       mongodb:
         image: mongo:9
@@ -68,8 +72,28 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          # The toolchain the build asks for: it compiles for Java 17 and runs the tests.
-          java-version: "21"
+          # The Java the tests run on, then the toolchain the build asks for: it compiles for Java 17. The last one
+          # is JAVA_HOME, which runs Gradle.
+          java-version: |
+            ${{ matrix.java }}
+            21
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew check --console=plain
-      - run: ./gradlew publishToMavenLocal --console=plain
+      # Gradle finds the tests' Java where setup-java says it put it.
+      - run: >-
+          ./gradlew check --console=plain -PtestJava=${{ matrix.java }}
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java }}_X64
+      - if: matrix.java == '21'
+        run: ./gradlew publishToMavenLocal --console=plain
+
+  # The branch's required check: every Java's tests passed, or the build was skipped.
+  check:
+    name: Build and test
+    needs: [changes, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          TEST: ${{ needs.test.result }}
+        run: test "$CHANGES" = success && { test "$TEST" = success || test "$TEST" = skipped; }
