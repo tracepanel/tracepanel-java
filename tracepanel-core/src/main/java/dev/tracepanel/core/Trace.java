@@ -36,6 +36,8 @@ public final class Trace {
     private long dbMicros;
     // Sampled while it runs, when it is profiled; its profile once it ended.
     volatile Profiler.Recording recording;
+    // What its request asked to be profiled for ("1", "memory"); null when it didn't (the setting profiles it, or none).
+    volatile String asked;
     private Map<String, Object> profile;
     // The trace its thread worked for when it began (a test's, around its MockMvc request), current again once it ends.
     Trace outer;

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A profile asked for follows the chain of calls: a request profiled
+  because it asked (the `X-Tracepanel-Profile` header or the panel's
+  cookie) sends the same `X-Tracepanel-Profile` value on the calls it makes
+  to other apps, next to their `traceparent` (RestClient, RestTemplate,
+  WebClient, the JDK's HttpClient, Ktor's `TracepanelClient`), so the
+  services it calls profile their traces too. Not for a trace only
+  `TRACEPANEL_PROFILE` profiles, and never over a header the app set
+  itself. `Profiler.asked(header, cookies)` says what a request asks for.
+
+### Changed
+
+- A request asking for `memory` (`X-Tracepanel-Profile: memory`, or the
+  panel's memory mode) is profiled, its time only: it wasn't profiled at
+  all before. It forwards `memory` as it came.
+
 ## 0.6.0 (2026-10-28)
 
 The SDK downloads `tracepanel-agent` 0.6.0 the first time. Its N+1 hint is

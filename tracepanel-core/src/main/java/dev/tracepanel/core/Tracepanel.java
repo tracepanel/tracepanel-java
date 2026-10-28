@@ -164,12 +164,23 @@ public final class Tracepanel {
 
     /**
      * Samples where the trace's time goes in code, from now to its end, when profiling is possible
-     * (TRACEPANEL_PROFILE_ENABLED): a request that asked for it, with an X-Tracepanel-Profile: 1 header or the panel's
-     * tracepanel_profile=1 cookie (Profiler.requested). The trace is this thread's: begin made it so.
+     * (TRACEPANEL_PROFILE_ENABLED). The trace is this thread's: begin made it so.
      */
     public void profile(Trace trace) {
         if (!config.profileEnabled() || trace.recording != null) return;
         trace.recording = profiler.start(Thread.currentThread());
+    }
+
+    /**
+     * Profiles a trace whose request asked for it, with an X-Tracepanel-Profile header or the panel's
+     * tracepanel_profile cookie (Profiler.asked): `asked` is what it asked for, "1" or "memory", or null for nothing.
+     * Its calls to other apps over HTTP ask the same (HttpCalls.Call.profile), so the whole chain is profiled; a trace
+     * only the TRACEPANEL_PROFILE setting profiles asks nothing of them.
+     */
+    public void profile(Trace trace, String asked) {
+        if (asked == null || !config.profileEnabled()) return;
+        profile(trace);
+        trace.asked = asked;
     }
 
     /** The trace ended: it goes to the agent, and the thread works for the one it worked for before, if any. */
