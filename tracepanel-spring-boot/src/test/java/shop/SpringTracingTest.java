@@ -223,6 +223,20 @@ class SpringTracingTest {
     }
 
     @Test
+    void the_console_leaves_explain_of_another_service_s_query_to_the_agent() throws Exception {
+        // A linked trace of the chain, recorded by a BFF in front of this app: its query ran on the BFF's database.
+        FakeAgent.TRACES.add(Map.of("id", "01BFFTRACE", "name", "GET /cart", "attrs", Map.of("service.name", "bff"),
+                "spans", List.of(Map.of("id", "q1", "kind", "sql", "name", "SELECT cart",
+                        "attrs", Map.of("db.statement", "SELECT * FROM cart", "db.params", List.of())))));
+
+        HttpResponse<String> plan = get("/__tracepanel__/api/explain?trace=01BFFTRACE&span=q1");
+
+        assertThat(plan.statusCode()).isEqualTo(200);
+        assertThat(plan.body()).isEqualTo("console /api/explain?trace=01BFFTRACE&span=q1");
+        assertThat(FakeAgent.CONSOLE_CALLS).contains("GET /api/traces/01BFFTRACE", "GET /api/explain?trace=01BFFTRACE&span=q1");
+    }
+
+    @Test
     void a_failed_request_s_answer_from_the_error_page_has_its_trace_s_headers() throws Exception {
         HttpResponse<String> response = get("/boom");
         String id = response.headers().firstValue("Tracepanel-Id").orElseThrow();
