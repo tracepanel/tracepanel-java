@@ -36,9 +36,17 @@ final class Explain {
     /** A plan's line: how deep in the plan, its text, and a warning when it reads a whole table. */
     record Line(int depth, String text, String warning) {}
 
+    /**
+     * The plan of the recorded query; null for a trace another service recorded (a linked trace of the chain), whose
+     * query runs on that app's database: the agent asks it.
+     */
     static Console.Answer answer(Tracepanel tracepanel, String query) {
         Map<String, String> params = query(query);
-        Map<String, Object> span = span(tracepanel, params.getOrDefault("trace", ""), params.getOrDefault("span", ""));
+        Map<?, ?> trace = trace(tracepanel, params.getOrDefault("trace", ""));
+        String service = trace != null && trace.get("attrs") instanceof Map<?, ?> attrs
+                && attrs.get("service.name") instanceof String named ? named : "";
+        if (!service.isEmpty() && !service.equals(tracepanel.config().service())) return null;
+        Map<String, Object> span = span(trace, params.getOrDefault("span", ""));
         if (span == null || !"sql".equals(span.get("kind")) || !(span.get("attrs") instanceof Map<?, ?> attrs)) {
             return json(404, Map.of("error", "not found"));
         }
@@ -201,20 +209,24 @@ final class Explain {
         return out;
     }
 
-    /** The span of a stored trace, as the agent gives it; null when there is no such trace or span. */
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> span(Tracepanel tracepanel, String traceId, String spanId) {
+    /** A stored trace, as the agent gives it; null when there is no such trace. */
+    private static Map<?, ?> trace(Tracepanel tracepanel, String traceId) {
         if (traceId.isEmpty() || !traceId.matches("[0-9A-Za-z]+")) return null;
         Console.Answer stored = Console.forward(tracepanel, "GET", "api/traces/" + traceId, null, null, "127.0.0.1");
         if (stored.status() != 200) return null;
         try {
-            if (!(Json.read(new String(stored.body(), StandardCharsets.UTF_8)) instanceof Map<?, ?> trace)) return null;
-            if (!(trace.get("spans") instanceof List<?> spans)) return null;
-            for (Object span : spans) {
-                if (span instanceof Map<?, ?> found && spanId.equals(found.get("id"))) return (Map<String, Object>) found;
-            }
+            return Json.read(new String(stored.body(), StandardCharsets.UTF_8)) instanceof Map<?, ?> trace ? trace : null;
         } catch (IllegalArgumentException e) {
             return null;
+        }
+    }
+
+    /** The trace's span with the id; null when there is no such span. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> span(Map<?, ?> trace, String spanId) {
+        if (trace == null || !(trace.get("spans") instanceof List<?> spans)) return null;
+        for (Object span : spans) {
+            if (span instanceof Map<?, ?> found && spanId.equals(found.get("id"))) return (Map<String, Object>) found;
         }
         return null;
     }

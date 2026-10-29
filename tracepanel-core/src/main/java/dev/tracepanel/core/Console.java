@@ -19,6 +19,8 @@ import java.util.Set;
 public final class Console {
     public static final int MAX_BODY = 8 << 20;
     private static final int TIMEOUT_MS = 10_000;
+    /** Another app's EXPLAIN, which the agent asks it for: above the 15 seconds the agent waits for that app. */
+    private static final int EXPLAIN_TIMEOUT_MS = 20_000;
     // The client's address as the server read it off the connection; Ktor's test engine says "localhost".
     private static final Set<String> LOOPBACK =
             Set.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "::ffff:127.0.0.1", "localhost");
@@ -50,9 +52,11 @@ public final class Console {
             return Answer.text(403, "The Tracepanel console answers this machine only. TRACEPANEL_CONSOLE_REMOTE=1 opens it"
                     + " to others, such as when the app runs in a container.");
         }
-        // EXPLAIN runs on the app's database: the app answers it, and what it can do, not the agent.
+        // EXPLAIN runs on the database of the app that recorded the query: this app's traces it answers itself,
+        // another service's (a linked trace of the chain) the agent asks that app for, down its connection.
         if (method.equals("GET") && (path.equals("api/explain") || path.startsWith("api/explain?"))) {
-            return Explain.answer(tracepanel, path.substring(path.indexOf('?') + 1));
+            Answer here = Explain.answer(tracepanel, path.substring(path.indexOf('?') + 1));
+            return here != null ? here : agent(tracepanel, method, path, contentType, body, EXPLAIN_TIMEOUT_MS);
         }
         if (method.equals("GET") && (path.equals("api/capabilities") || path.startsWith("api/capabilities?"))) {
             // The agent answers what the console can offer, from the app's hello: connected now, it has heard it.
@@ -62,17 +66,22 @@ public final class Console {
             if (!local(from)) return Answer.text(403, "The Tracepanel console takes writes from this machine only.");
             if (body == null) return Answer.text(413, "Too large.");
         }
+        return agent(tracepanel, method, path, contentType, body, TIMEOUT_MS);
+    }
+
+    /** The agent's answer to the request, waited for up to `timeout` milliseconds; the agent started if none answers. */
+    private static Answer agent(Tracepanel tracepanel, String method, String path, String contentType, byte[] body, int timeout) {
         Agent agent = tracepanel.agent();
         String base = agent.console();
         if (base == null && agent.ensure(false)) base = agent.console();
         if (base == null) return Answer.text(503, "No Tracepanel agent: set TRACEPANEL_AGENT_BIN, or put tracepanel-agent on the PATH.");
         try {
-            return fetch(base + path, method, contentType, body, tracepanel.config().service());
+            return fetch(base + path, method, contentType, body, tracepanel.config().service(), timeout);
         } catch (IOException e) {
             // The agent at the address left there exited: a new one, and the request once more.
             if (agent.ensure(true) && (base = agent.console()) != null) {
                 try {
-                    return fetch(base + path, method, contentType, body, tracepanel.config().service());
+                    return fetch(base + path, method, contentType, body, tracepanel.config().service(), timeout);
                 } catch (IOException again) {
                     return Answer.text(502, "Tracepanel's agent doesn't answer.");
                 }
@@ -85,12 +94,13 @@ public final class Console {
      * The agent's answer; `service` says which app's console asked, so the agent offers it what the app answers here
      * (EXPLAIN).
      */
-    private static Answer fetch(String url, String method, String contentType, byte[] body, String service) throws IOException {
+    private static Answer fetch(String url, String method, String contentType, byte[] body, String service, int timeout)
+            throws IOException {
         HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
         connection.setRequestMethod(method);
         connection.setRequestProperty("Tracepanel-Console", service);
         connection.setConnectTimeout(TIMEOUT_MS);
-        connection.setReadTimeout(TIMEOUT_MS);
+        connection.setReadTimeout(timeout);
         if (body != null && body.length > 0) {
             connection.setDoOutput(true);
             if (contentType != null) connection.setRequestProperty("Content-Type", contentType);

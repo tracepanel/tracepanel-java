@@ -29,6 +29,15 @@
   panel's memory mode) is profiled, its time only: it wasn't profiled at
   all before. It forwards `memory` as it came.
 
+### Fixed
+
+- EXPLAIN at the app's own console of a trace another service recorded
+  (a linked trace of the chain: a BFF in front of the app, an API behind
+  it) no longer runs on this app's database: the console answers only its
+  own app's traces (or one with no `service.name`), and leaves another's
+  to the agent, which asks the app that recorded it down its connection,
+  waiting 20 seconds for it, above the agent's own 15.
+
 ## 0.6.0 (2026-10-28)
 
 The SDK downloads `tracepanel-agent` 0.6.0 the first time. Its N+1 hint is

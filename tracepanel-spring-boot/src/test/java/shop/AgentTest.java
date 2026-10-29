@@ -4,15 +4,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jayway.jsonpath.JsonPath;
 import dev.tracepanel.core.Tracepanel;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.net.StandardProtocolFamily;
 import java.net.URI;
+import java.net.UnixDomainSocketAddress;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.Channels;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -152,5 +163,77 @@ class AgentTest {
         assertThat(lines).anySatisfy(line -> assertThat(line).containsEntry("text", "FROM \"PUBLIC\".\"AUTHOR\""));
 
         assertThat(JsonPath.parse(get(console + "api/capabilities").body()).read("$.explain", Boolean.class)).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void the_app_s_console_leaves_another_service_s_query_to_the_app_that_recorded_it() throws Exception {
+        String console = console();
+        // A BFF in front of this app, connected to the same agent, its query run on its own database.
+        try (SocketChannel bff = connect(Files.readString(STORE.resolve("agent.addr")).strip())) {
+            DataOutputStream out = new DataOutputStream(Channels.newOutputStream(bff));
+            DataInputStream in = new DataInputStream(Channels.newInputStream(bff));
+            out.write("{\"protocol\":1,\"service\":\"library-bff\",\"capabilities\":[\"explain\"]}\n"
+                    .getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            assertThat(line(in)).contains("\"ok\":true");
+            // A trace id as the agent takes them: 26 of 0-9 and A-Z.
+            String id = ("01JBFF" + Long.toString(System.nanoTime(), 36).toUpperCase() + "0".repeat(26)).substring(0, 26);
+            String trace = "[{\"id\":\"" + id + "\",\"kind\":\"http\",\"name\":\"GET /cart\",\"start\":0,\"duration\":5,"
+                    + "\"status\":\"ok\",\"attrs\":{\"service.name\":\"library-bff\"},\"spans\":[{\"id\":\"q1\","
+                    + "\"parent_id\":null,\"kind\":\"sql\",\"name\":\"SELECT cart\",\"start\":1,\"duration\":1,"
+                    + "\"status\":\"ok\",\"attrs\":{\"db.system\":\"sqlite\",\"db.statement\":\"SELECT * FROM cart\","
+                    + "\"db.params\":[]}}],\"logs\":[]}]";
+            byte[] frame = trace.getBytes(StandardCharsets.UTF_8);
+            out.writeInt(frame.length);
+            out.write(frame);
+            out.flush();
+            for (int waited = 0; waited < 10_000 && get(console + "api/traces/" + id).statusCode() != 200; waited += 50) {
+                Thread.sleep(50);
+            }
+            // The BFF answers the agent's request with the rows its database gave.
+            CompletableFuture<Map<String, Object>> asked = CompletableFuture.supplyAsync(() -> {
+                try {
+                    byte[] request = new byte[in.readInt()];
+                    in.readFully(request);
+                    Map<String, Object> read = JsonPath.parse(new String(request, StandardCharsets.UTF_8)).read("$");
+                    byte[] answer = ("{\"answer\":" + read.get("id") + ",\"columns\":[\"id\",\"parent\",\"notused\",\"detail\"],"
+                            + "\"rows\":[[2,0,0,\"SCAN cart\"]]}").getBytes(StandardCharsets.UTF_8);
+                    out.writeInt(answer.length);
+                    out.write(answer);
+                    out.flush();
+                    return read;
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+
+            HttpResponse<String> explained = get("http://127.0.0.1:" + port + "/__tracepanel__/api/explain?trace=" + id + "&span=q1");
+
+            assertThat(explained.statusCode()).as(explained.body()).isEqualTo(200);
+            assertThat(JsonPath.parse(explained.body()).read("$.vendor", String.class)).isEqualTo("sqlite");
+            assertThat(JsonPath.parse(explained.body()).read("$.lines[*].text", List.class)).isEqualTo(List.of("SCAN cart"));
+            assertThat((Map<String, Object>) asked.get(5, TimeUnit.SECONDS).get("explain"))
+                    .containsEntry("sql", "EXPLAIN QUERY PLAN SELECT * FROM cart");
+        }
+    }
+
+    /** A connection to the agent at its address: a Unix socket, or TCP. */
+    private static SocketChannel connect(String address) throws Exception {
+        if (address.startsWith("unix:")) {
+            SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
+            channel.connect(UnixDomainSocketAddress.of(address.substring("unix:".length())));
+            return channel;
+        }
+        String hostPort = address.substring("tcp:".length());
+        int colon = hostPort.lastIndexOf(':');
+        return SocketChannel.open(new InetSocketAddress(hostPort.substring(0, colon), Integer.parseInt(hostPort.substring(colon + 1))));
+    }
+
+    /** The agent's reply to the hello, a byte at a time: its requests follow in frames. */
+    private static String line(InputStream in) throws Exception {
+        StringBuilder line = new StringBuilder();
+        for (int c = in.read(); c != -1 && c != '\n'; c = in.read()) line.append((char) c);
+        return line.toString();
     }
 }
