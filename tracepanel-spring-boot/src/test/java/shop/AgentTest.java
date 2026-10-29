@@ -18,20 +18,25 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * The console's Live with the real agent, which the app starts as it would in development: run by the build's
- * testAgent task, with TEST_AGENT_BIN naming the agent's binary.
+ * The console's Live and EXPLAIN with the real agent, which the app starts as it would in development: run by the
+ * build's testAgent task, with TEST_AGENT_BIN naming the agent's binary.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @EnabledIfEnvironmentVariable(named = "TEST_AGENT_BIN", matches = ".+")
-class LiveTasksAgentTest {
+class AgentTest {
     private static final Path STORE = Path.of(System.getenv("TRACEPANEL_DIR"));
 
     @LocalServerPort
     int port;
+
+    @Autowired
+    JdbcTemplate db;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -118,5 +123,34 @@ class LiveTasksAgentTest {
         Jobs.RELEASE.countDown();
 
         live(console, now -> tasks(now, "Jobs.importCatalog").isEmpty());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void the_agent_explains_a_recorded_query_asking_the_app_down_its_connection() throws Exception {
+        db.execute("CREATE TABLE IF NOT EXISTS author (id INT PRIMARY KEY, name VARCHAR(50))");
+        db.execute("CREATE TABLE IF NOT EXISTS book (id INT PRIMARY KEY, title VARCHAR(50), author_id INT)");
+        db.execute("MERGE INTO author KEY (id) VALUES (1, 'Ann')");
+        db.execute("MERGE INTO book KEY (id) VALUES (1, 'One', 1)");
+        String id = get("http://127.0.0.1:" + port + "/shelves/explained/books").headers().firstValue("Tracepanel-Id").orElseThrow();
+        String console = console();
+        HttpResponse<String> stored = get(console + "api/traces/" + id);
+        for (int waited = 0; waited < 10_000 && stored.statusCode() != 200; waited += 50) {
+            Thread.sleep(50);
+            stored = get(console + "api/traces/" + id);
+        }
+        List<Map<String, Object>> spans = JsonPath.parse(stored.body()).read("$.spans");
+        Map<String, Object> lookup = spans.stream().filter(span -> "SELECT author".equals(span.get("name"))).findFirst().orElseThrow();
+
+        // The agent's own console: the app answers down its connection, not at a console of its own.
+        HttpResponse<String> explained = get(console + "api/explain?trace=" + id + "&span=" + lookup.get("id"));
+
+        assertThat(explained.statusCode()).as(explained.body()).isEqualTo(200);
+        Map<String, Object> plan = new HashMap<>(JsonPath.parse(explained.body()).read("$", Map.class));
+        List<Map<String, Object>> lines = (List<Map<String, Object>>) plan.remove("lines");
+        assertThat(plan).isEqualTo(Map.of("vendor", "h2", "alias", "default", "analyzed", false));
+        assertThat(lines).anySatisfy(line -> assertThat(line).containsEntry("text", "FROM \"PUBLIC\".\"AUTHOR\""));
+
+        assertThat(JsonPath.parse(get(console + "api/capabilities").body()).read("$.explain", Boolean.class)).isTrue();
     }
 }

@@ -26,14 +26,24 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SenderTest {
-    /** An agent on a port of its own: answers the hello, keeps the frames it gets, goes when closed. */
+    /**
+     * An agent on a port of its own: answers the hello, keeps the frames it gets, goes when closed. It asks the app
+     * down the last connection (ask), and sends `first` right behind its answer to the hello, in the same write.
+     */
     static final class OneAgent implements AutoCloseable {
         final ServerSocket server = new ServerSocket(0, 5, InetAddress.getLoopbackAddress());
         final List<String> frames = new CopyOnWriteArrayList<>();
         final List<String> hellos = new CopyOnWriteArrayList<>();
         final List<Socket> connections = new CopyOnWriteArrayList<>();
+        final List<Socket> answered = new CopyOnWriteArrayList<>();
+        private final String first;
 
         OneAgent() throws IOException {
+            this(null);
+        }
+
+        OneAgent(String first) throws IOException {
+            this.first = first;
             Thread accept = new Thread(() -> {
                 try {
                     while (true) {
@@ -55,7 +65,10 @@ class SenderTest {
                 StringBuilder hello = new StringBuilder();
                 for (int c = in.read(); c != -1 && c != '\n'; c = in.read()) hello.append((char) c);
                 hellos.add(hello.toString());
-                socket.getOutputStream().write("{\"ok\":true}\n".getBytes(StandardCharsets.UTF_8));
+                synchronized (socket) {
+                    socket.getOutputStream().write(first == null ? ok() : concat(ok(), frame(first)));
+                }
+                answered.add(socket);
                 while (true) {
                     byte[] frame = new byte[in.readInt()];
                     in.readFully(frame);
@@ -68,6 +81,20 @@ class SenderTest {
 
         String address() {
             return "tcp:127.0.0.1:" + server.getLocalPort();
+        }
+
+        /** `request` down the last connection the agent answered the hello of, once there is one. */
+        void ask(String request) throws IOException, InterruptedException {
+            for (int i = 0; i < 250 && answered.isEmpty(); i++) TimeUnit.MILLISECONDS.sleep(20);
+            Socket socket = answered.get(answered.size() - 1);
+            synchronized (socket) {
+                socket.getOutputStream().write(frame(request));
+            }
+        }
+
+        /** The frame that answers the request with `id`, once the app sent it. */
+        Object answer(long id) throws InterruptedException {
+            return SenderTest.answer(frames, id);
         }
 
         boolean got(String id) throws InterruptedException {
@@ -91,6 +118,7 @@ class SenderTest {
         final ServerSocketChannel server;
         final List<String> frames = new CopyOnWriteArrayList<>();
         final List<SocketChannel> connections = new CopyOnWriteArrayList<>();
+        final List<SocketChannel> answered = new CopyOnWriteArrayList<>();
 
         UnixAgent(Path path) throws IOException {
             this.path = path;
@@ -117,7 +145,10 @@ class SenderTest {
                 for (int c = in.read(); c != -1 && c != '\n'; c = in.read()) {
                     // The hello line.
                 }
-                socket.write(ByteBuffer.wrap("{\"ok\":true}\n".getBytes(StandardCharsets.UTF_8)));
+                synchronized (socket) {
+                    socket.write(ByteBuffer.wrap(ok()));
+                }
+                answered.add(socket);
                 while (true) {
                     byte[] frame = new byte[in.readInt()];
                     in.readFully(frame);
@@ -136,12 +167,51 @@ class SenderTest {
             return false;
         }
 
+        void ask(String request) throws IOException, InterruptedException {
+            for (int i = 0; i < 250 && answered.isEmpty(); i++) TimeUnit.MILLISECONDS.sleep(20);
+            SocketChannel socket = answered.get(answered.size() - 1);
+            synchronized (socket) {
+                socket.write(ByteBuffer.wrap(frame(request)));
+            }
+        }
+
+        Object answer(long id) throws InterruptedException {
+            return SenderTest.answer(frames, id);
+        }
+
         @Override
         public void close() throws IOException {
             server.close();
             for (SocketChannel socket : connections) socket.close();
             Files.deleteIfExists(path);
         }
+    }
+
+    private static byte[] ok() {
+        return "{\"ok\":true}\n".getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** A frame as the agent sends one: a 4-byte big-endian length, then the JSON. */
+    static byte[] frame(String json) {
+        byte[] data = json.getBytes(StandardCharsets.UTF_8);
+        return ByteBuffer.allocate(4 + data.length).putInt(data.length).put(data).array();
+    }
+
+    private static byte[] concat(byte[] first, byte[] second) {
+        return ByteBuffer.allocate(first.length + second.length).put(first).put(second).array();
+    }
+
+    /** Of `frames`, the one that answers the request with `id`, read; null when none came. */
+    static Object answer(List<String> frames, long id) throws InterruptedException {
+        for (int i = 0; i < 250; i++) {
+            for (String frame : frames) {
+                if (frame.startsWith("{") && Json.read(frame) instanceof Map<?, ?> answer && Long.valueOf(id).equals(answer.get("answer"))) {
+                    return answer;
+                }
+            }
+            TimeUnit.MILLISECONDS.sleep(20);
+        }
+        return null;
     }
 
     @Test
@@ -195,15 +265,20 @@ class SenderTest {
         Set<String> sends = Set.of("live_tasks");
 
         assertEquals(List.of("profile", "request", "live_tasks"),
-                Sender.capabilities(Config.load(Map.of(), "shop"), sends));
+                Sender.capabilities(Config.load(Map.of(), "shop"), sends, false));
         assertEquals(List.of("profile", "profile_all", "request", "live_tasks"),
-                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1"), "shop"), sends));
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1"), "shop"), sends, false));
         assertEquals(List.of("profile", "profile_all"),
-                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_CAPTURE_REQUEST", "0"), "shop"), Set.of()));
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_CAPTURE_REQUEST", "0"), "shop"), Set.of(), false));
 
         // Profiling off: nothing profiles, whatever TRACEPANEL_PROFILE says.
         assertEquals(List.of("request"),
-                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), "shop"), Set.of()));
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), "shop"), Set.of(), false));
+    }
+
+    @Test
+    void the_hello_says_the_app_explains_down_its_connection_once_it_has_a_database() {
+        assertEquals(List.of("explain", "profile", "request"), Sender.capabilities(Config.load(Map.of(), "shop"), Set.of(), true));
     }
 
     @Test
@@ -220,7 +295,8 @@ class SenderTest {
             new Sender(Config.load(env, "shop"), new Agent(store, env)).submit(Map.of("id", "profiled"));
 
             assertTrue(agent.got("profiled"));
-            assertTrue(agent.hellos.get(0).contains("\"capabilities\":[\"profile\",\"profile_all\""), agent.hellos.get(0));
+            // After "explain", when an earlier test gave the app a database.
+            assertTrue(agent.hellos.get(0).matches(".*\"capabilities\":\\[(\"explain\",)?\"profile\",\"profile_all\".*"), agent.hellos.get(0));
         }
     }
 }

@@ -17,6 +17,8 @@ dependencies {
     testFixturesImplementation("com.jayway.jsonpath:json-path:2.9.0")
     testImplementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
     testImplementation("org.apache.logging.log4j:log4j-core")
+    // A database for EXPLAIN to run on.
+    testImplementation("com.h2database:h2")
     testCompileOnly("biz.aQute.bnd:biz.aQute.bnd.annotation:7.4.0")
     testCompileOnly("com.github.spotbugs:spotbugs-annotations:4.10.5")
     compileOnly(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))

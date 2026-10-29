@@ -107,10 +107,10 @@ tasks.withType<Test>().configureEach {
     environment("SPRING_RABBITMQ_LISTENER_SIMPLE_AUTO_STARTUP", (rabbit != null).toString())
 }
 
-// The console's Live with the real agent, when TEST_AGENT_BIN names its binary (a build of it from source, before a
-// release that has what the test asks for): the app starts it, as in development, and the test stops it. The other
-// test tasks talk to the tests' fake agent and leave this one out.
-val agentTest = "shop.LiveTasksAgentTest"
+// The console's Live and EXPLAIN with the real agent, when TEST_AGENT_BIN names its binary (a build of it from source,
+// before a release that has what the test asks for): the app starts it, as in development, and the test stops it. The
+// other test tasks talk to the tests' fake agent and leave this one out.
+val agentTest = "shop.AgentTest"
 val agentBin: String? = System.getenv("TEST_AGENT_BIN")
 val testAgent by tasks.registering(Test::class) {
     description = "Runs the tests against the real agent named by TEST_AGENT_BIN."
