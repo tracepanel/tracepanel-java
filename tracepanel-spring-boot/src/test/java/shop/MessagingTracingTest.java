@@ -93,4 +93,47 @@ class MessagingTracingTest {
 
         assertThat(ran.get(0).get("time")).isEqualTo(ran.get(1).get("time"));
     }
+
+    /** The trace of the message the request to `path` sent, once its listener handled it. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> receivedFrom(String path) throws InterruptedException {
+        Object sender = FakeAgent.traceAt(path).get("id");
+        for (int waited = 0; waited < 10000; waited += 20) {
+            for (Map<String, Object> trace : FakeAgent.TRACES) {
+                List<Map<String, Object>> links = (List<Map<String, Object>>) trace.get("links");
+                if (links != null && links.stream().anyMatch(link -> sender.equals(link.get("trace_id")))) return trace;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("no trace of the message " + path + " sent");
+    }
+
+    private void get(String path, String... headers) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path));
+        if (headers.length > 0) request.headers(headers);
+        HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"kafka, onKafkaReport", "rabbit, onRabbitReport"})
+    @SuppressWarnings("unchecked")
+    void a_message_sent_by_a_request_that_asked_to_be_profiled_is_profiled_where_it_is_received(String path, String listener)
+            throws Exception {
+        get("/publish/" + path + "/report/time", "X-Tracepanel-Profile", "1");
+        get("/publish/" + path + "/report/memory", "Cookie", "tracepanel_profile=memory");
+        get("/publish/" + path + "/report/none");
+        Map<String, Object> time = receivedFrom("/publish/" + path + "/report/time");
+        Map<String, Object> memory = receivedFrom("/publish/" + path + "/report/memory");
+        Map<String, Object> none = receivedFrom("/publish/" + path + "/report/none");
+        Map<String, Object> profile = (Map<String, Object>) time.get("profile");
+
+        assertThat(time).containsEntry("name", "Listeners." + listener);
+        assertThat(profile).containsEntry("interval_us", 1000);
+        assertThat((List<Map<String, Object>>) profile.get("frames"))
+                .anySatisfy(frame -> assertThat(frame).containsEntry("function", "OrderController.crunch"));
+
+        assertThat(memory).containsKey("profile");
+
+        assertThat(none).containsEntry("name", "Listeners." + listener).doesNotContainKey("profile");
+    }
 }

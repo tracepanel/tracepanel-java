@@ -107,13 +107,16 @@ final class KafkaMessages {
             attrs.put("messaging.kafka.partition", record.partition());
             attrs.put("messaging.kafka.offset", record.offset());
             Header sentBy = record.headers().lastHeader(Messages.SENT_BY);
+            Header profile = record.headers().lastHeader(Messages.PROFILE);
             String id = taskId(record);
-            Trace trace = Messages.receive("kafka", record.topic(),
-                    header == null ? null : new String(header.value(), StandardCharsets.UTF_8),
-                    sentBy == null ? null : new String(sentBy.value(), StandardCharsets.UTF_8), id,
-                    failures.getOrDefault(id, 0L), attrs);
+            Trace trace = Messages.receive("kafka", record.topic(), text(header), text(sentBy), id,
+                    failures.getOrDefault(id, 0L), text(profile), attrs);
             if (trace != null) receiving.set(trace);
             return record;
+        }
+
+        private static String text(Header header) {
+            return header == null || header.value() == null ? null : new String(header.value(), StandardCharsets.UTF_8);
         }
 
         /** The id its sender gave it in Live, else where it is: topic, partition and offset name one record. */

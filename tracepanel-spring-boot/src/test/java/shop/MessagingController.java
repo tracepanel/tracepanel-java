@@ -9,9 +9,13 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Messages sent from a request, one per book (an N+1 of publishes), and the listeners that receive them. */
+/**
+ * Messages sent from a request, one per book (an N+1 of publishes), a report to make, and the listeners that receive
+ * them: a report's slow enough to profile.
+ */
 @RestController
 public class MessagingController {
     private final KafkaTemplate<String, String> kafka;
@@ -34,6 +38,18 @@ public class MessagingController {
         return "sent";
     }
 
+    @GetMapping("/publish/kafka/report/{name}")
+    public String kafkaReport(@PathVariable String name) {
+        kafka.send("reports", name);
+        return "sent";
+    }
+
+    @GetMapping("/publish/rabbit/report/{name}")
+    public String rabbitReport(@PathVariable String name) {
+        rabbit.convertAndSend("reports", name);
+        return "sent";
+    }
+
     @Component
     static class Listeners {
         static final List<String> RECEIVED = new CopyOnWriteArrayList<>();
@@ -46,6 +62,16 @@ public class MessagingController {
         @RabbitListener(queuesToDeclare = @Queue("books"))
         void onRabbitBook(String book) {
             RECEIVED.add("rabbit " + book);
+        }
+
+        @KafkaListener(topics = "reports", groupId = "shop")
+        void onKafkaReport(String name) {
+            RECEIVED.add("kafka report " + name + " " + OrderController.crunch(60));
+        }
+
+        @RabbitListener(queuesToDeclare = @Queue("reports"))
+        void onRabbitReport(String name) {
+            RECEIVED.add("rabbit report " + name + " " + OrderController.crunch(60));
         }
     }
 }

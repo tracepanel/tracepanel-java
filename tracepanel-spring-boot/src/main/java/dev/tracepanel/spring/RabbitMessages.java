@@ -64,7 +64,7 @@ final class RabbitMessages {
         }
     }
 
-    /** Before a message goes out, on the sending thread: its traceparent, and where it goes. */
+    /** Before a message goes out, on the sending thread: its traceparent, where it goes, and the profile asked for. */
     static final class Headers implements MessagePostProcessor {
         @Override
         public Message postProcessMessage(Message message) {
@@ -84,6 +84,10 @@ final class RabbitMessages {
                 properties.setHeader(Messages.SENT_BY, publish.sentBy());
                 properties.setHeader(Messages.TASK_ID, publish.taskId());
             }
+            // A profile its trace's request asked for: the app that receives it profiles its trace too. The app's own goes.
+            if (publish.profile() != null && properties.getHeader(Messages.PROFILE) == null) {
+                properties.setHeader(Messages.PROFILE, publish.profile());
+            }
             return message;
         }
     }
@@ -101,9 +105,10 @@ final class RabbitMessages {
             String queue = properties.getConsumerQueue() != null ? properties.getConsumerQueue() : properties.getReceivedRoutingKey();
             Object sentBy = properties.getHeader(Messages.SENT_BY);
             Object taskId = properties.getHeader(Messages.TASK_ID);
+            Object profile = properties.getHeader(Messages.PROFILE);
             Trace trace = Messages.receive("rabbitmq", queue, traceparent == null ? null : traceparent.toString(),
                     sentBy == null ? null : sentBy.toString(), taskId != null ? taskId.toString() : properties.getMessageId(),
-                    retries(properties), attrs);
+                    retries(properties), profile == null ? null : profile.toString(), attrs);
             if (trace == null) return invocation.proceed();
             try {
                 Object result = invocation.proceed();
