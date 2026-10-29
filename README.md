@@ -424,8 +424,8 @@ It runs the tests on Spring Boot 4 and on 3.5, and on Ktor. The tests of
 MongoDB, Redis, Kafka and RabbitMQ need a server of each:
 `TEST_MONGODB_URI=mongodb://127.0.0.1:27017/test`, `TEST_REDIS_PORT=6379`,
 `TEST_KAFKA_BOOTSTRAP=localhost:9092` and `TEST_RABBITMQ_PORT=5672`. The
-tests of the console's Live with the real agent need its binary:
-`TEST_AGENT_BIN=/path/to/tracepanel-agent`. After
+tests of the console's Live and EXPLAIN with the real agent need its
+binary: `TEST_AGENT_BIN=/path/to/tracepanel-agent`. After
 changing `agentVersion` in `gradle.properties`, `./gradlew agentIntegrity`
 writes the checksums of that version's downloads.
 

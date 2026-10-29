@@ -13,6 +13,16 @@
   `TRACEPANEL_PROFILE` profiles, and never over a header the app set
   itself. `Profiler.asked(header, cookies)` says what a request asks for.
 
+- EXPLAIN from the console of any app in the chain: the agent asks the
+  app down its connection, as it asks the JavaScript SDK, so a query of a
+  Spring service behind a BFF or a frontend is explained from their
+  console too. The app runs the agent's EXPLAIN on the database of the
+  query's alias, on a connection of its own, rolls back whatever it did,
+  and gives up after 15 seconds, as the agent does; a thread of its own
+  runs it, so traces go on meanwhile. Its hello says `explain` in
+  `capabilities` once the app has a database, and still offers it at the
+  app's own console, for an agent from before.
+
 ### Changed
 
 - A request asking for `memory` (`X-Tracepanel-Profile: memory`, or the

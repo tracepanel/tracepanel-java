@@ -259,7 +259,7 @@ public final class Jdbc {
         }
     }
 
-    private static Object scalar(Object value) {
+    static Object scalar(Object value) {
         return value == null || value instanceof Number || value instanceof Boolean ? value : String.valueOf(value);
     }
 }

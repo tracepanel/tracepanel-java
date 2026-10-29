@@ -1,10 +1,9 @@
 package dev.tracepanel.core;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -30,7 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Sends the finished traces to the agent from a thread of its own, in batches: a hello line, then frames of a
  * 4-byte big-endian length and a JSON array of traces, or an object of task events, {"tasks": [...]} (an agent from
- * before ignores it). A full queue drops a trace rather than slow a request down.
+ * before ignores it). A full queue drops a trace rather than slow a request down. The agent's requests come down the
+ * same connection (AgentRequests: EXPLAIN on the app's database), their answers go up it between the batches.
  */
 public final class Sender {
     private static final int PROTOCOL = 1;
@@ -49,6 +49,8 @@ public final class Sender {
     private Connection connection;
     // What the connection's hello said the app sends: once it sends more, it connects again to say so.
     private Set<String> said = Set.of();
+    // Whether the connection's hello said the app can EXPLAIN: once it has a database, it connects again to say so.
+    private boolean saidExplain;
     private long retryAt;
 
     /** A connection to the agent; `gone` once the agent closed it (its reader saw the end). */
@@ -111,6 +113,13 @@ public final class Sender {
     private synchronized void send(List<Object> batch) {
         Connection open = connection();
         if (open == null) return;
+        // An answer to the agent goes up between frames, never inside one.
+        synchronized (open.out()) {
+            sendFrames(open, batch);
+        }
+    }
+
+    private void sendFrames(Connection open, List<Object> batch) {
         try {
             List<Object> run = new ArrayList<>();
             boolean events = false;
@@ -147,6 +156,11 @@ public final class Sender {
             close();
             retryAt = 0;
         }
+        if (connection != null && !saidExplain && Jdbc.hasDatabases()) {
+            // The app has a database now, which it can EXPLAIN on: the agent hears a new hello that says so.
+            close();
+            retryAt = 0;
+        }
         if (connection != null) return connection;
         if (System.currentTimeMillis() < retryAt) return null;
         connection = handshake(agent.address());
@@ -156,25 +170,23 @@ public final class Sender {
     }
 
     /**
-     * Marks the connection gone once the agent closes it. The agent sends this app nothing after the hello, so a read
-     * returns only at its end.
+     * Reads the agent's requests (AgentRequests), answering each up `out`, and marks the connection gone once the
+     * agent closes it.
      */
-    private static void watch(AutoCloseable channel, InputStream in, AtomicBoolean gone) {
+    private static void watch(AutoCloseable channel, InputStream in, DataOutputStream out, AtomicBoolean gone) {
+        AgentRequests requests = new AgentRequests(answer -> answer(out, answer));
         Thread reader = new Thread(() -> {
             try {
+                byte[] bytes = new byte[8192];
                 // A unix socket's channel is read as a channel: its stream would hold the lock its writes need.
                 if (channel instanceof SocketChannel socket) {
-                    ByteBuffer skipped = ByteBuffer.allocate(256);
-                    while (socket.read(skipped.clear()) != -1) {
-                        // Nothing is expected: whatever comes is skipped, until the end.
-                    }
+                    ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                    for (int read; (read = socket.read(buffer.clear())) != -1; ) requests.read(bytes, read);
                 } else {
-                    while (in.read() != -1) {
-                        // As above.
-                    }
+                    for (int read; (read = in.read(bytes)) != -1; ) requests.read(bytes, read);
                 }
             } catch (IOException e) {
-                // Closed on this side, or reset by the agent: gone either way.
+                // Closed on this side, reset by the agent, or a frame no agent sends: gone either way.
             }
             gone.set(true);
         }, "tracepanel-agent-watch");
@@ -182,13 +194,25 @@ public final class Sender {
         reader.start();
     }
 
+    /** An answer to the agent's request: a frame up the connection, between the batches of traces. */
+    private static void answer(DataOutputStream out, Map<String, Object> answer) throws IOException {
+        byte[] data = Json.write(answer).getBytes(StandardCharsets.UTF_8);
+        synchronized (out) {
+            out.writeInt(data.length);
+            out.write(data);
+            out.flush();
+        }
+    }
+
     /**
      * What the app's traces hold beyond the usual, said in the hello: a profile when one is asked for, and whether the
      * settings profile every trace (profile_all: the console's Profile button shows on), the request's details; and
-     * what it sends besides them (live_tasks: task events). No profile_memory: the SDK has no memory profiler.
+     * what it sends besides them (live_tasks: task events); and that it answers EXPLAIN down the connection when it
+     * has a database (`databases`). No profile_memory: the SDK has no memory profiler.
      */
-    static List<String> capabilities(Config config, Set<String> sends) {
+    static List<String> capabilities(Config config, Set<String> sends, boolean databases) {
         List<String> capabilities = new ArrayList<>();
+        if (databases) capabilities.add("explain");
         if (config.profileEnabled()) capabilities.add("profile");
         if (config.profileEnabled() && config.profile()) capabilities.add("profile_all");
         if (config.captureRequest()) capabilities.add("request");
@@ -228,15 +252,18 @@ public final class Sender {
             // The agent finds the issues with this project's limits.
             hello.put("thresholds", config.thresholds());
             // What the app offers the console, the one place it says so: the agent alone answers api/capabilities.
-            // EXPLAIN runs on the app's database, answered at the app's own console (Console), not down here.
+            // EXPLAIN runs on the app's database: asked down this connection (AgentRequests), so the console of any app
+            // in a chain can explain this one's queries, and at the app's own console (Console), for an agent from
+            // before.
             hello.put("service", config.service());
             Set<String> sends = Set.copyOf(SENDS);
-            List<String> capabilities = capabilities(config, sends);
+            boolean databases = Jdbc.hasDatabases();
+            List<String> capabilities = capabilities(config, sends, databases);
             if (!capabilities.isEmpty()) hello.put("capabilities", capabilities);
-            if (Jdbc.hasDatabases()) hello.put("console", List.of("explain"));
+            if (databases) hello.put("console", List.of("explain"));
             out.write((Json.write(hello) + "\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
-            String reply = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)).readLine();
+            String reply = line(in);
             if (channel instanceof Socket socket) socket.setSoTimeout(0);
             if (reply == null || !reply.replace(" ", "").contains("\"ok\":true")) {
                 Agent.warn("the agent refused: " + reply);
@@ -244,12 +271,27 @@ public final class Sender {
                 return null;
             }
             AtomicBoolean gone = new AtomicBoolean();
-            watch(channel, in, gone);
+            DataOutputStream data = new DataOutputStream(out);
+            watch(channel, in, data, gone);
             said = sends;
-            return new Connection(channel, new DataOutputStream(out), gone);
+            saidExplain = databases;
+            return new Connection(channel, data, gone);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * The agent's reply to the hello, read a byte at a time: what follows it is the agent's first request, which a
+     * buffered reader would take.
+     */
+    private static String line(InputStream in) throws IOException {
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        for (int c = in.read(); c != '\n'; c = in.read()) {
+            if (c == -1) return line.size() == 0 ? null : line.toString(StandardCharsets.UTF_8);
+            line.write(c);
+        }
+        return line.toString(StandardCharsets.UTF_8);
     }
 
     private void close() {

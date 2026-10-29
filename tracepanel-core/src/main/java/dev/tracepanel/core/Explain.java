@@ -19,10 +19,15 @@ import javax.sql.DataSource;
 /**
  * The console's `api/explain?trace=&span=&analyze=`: EXPLAIN of a recorded query, run by the app on the database it
  * came from (the agent has no way to it). The statement and its parameters come from the stored trace; the plan goes
- * back as lines with their depth and what to look at (a full scan).
+ * back as lines with their depth and what to look at (a full scan). An agent that asks down the app's connection
+ * (AgentRequests) writes the EXPLAIN itself and reads the plan from its rows: the console of any app in the chain can
+ * explain this app's queries then.
  */
 final class Explain {
     private static final Pattern SELECT = Pattern.compile("^\\s*(SELECT|WITH)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EXPLAIN = Pattern.compile("^\\s*EXPLAIN\\b", Pattern.CASE_INSENSITIVE);
+    /** As long as the agent waits for an answer. */
+    private static final int TIMEOUT_SECONDS = 15;
     private static final Pattern SEQ_SCAN = Pattern.compile("Seq Scan on (\\w+)");
     private static final Pattern SQLITE_SCAN = Pattern.compile("^SCAN (?:TABLE )?(\\w+)(?!.*\\bUSING\\b)");
 
@@ -54,26 +59,83 @@ final class Explain {
 
     private static Map<String, Object> run(DataSource database, String alias, String statement, List<?> values, boolean analyze)
             throws SQLException {
-        try (Connection connection = database.getConnection()) {
-            String vendor = connection.getMetaData().getDatabaseProductName().toLowerCase(java.util.Locale.ROOT).replace(" ", "");
-            boolean analyzed = analyze && (vendor.equals("postgresql") || vendor.equals("mysql") || vendor.equals("h2"));
+        return query(database, vendor -> {
+            boolean analyzed = analyzed(analyze, vendor);
             String prefix = switch (vendor) {
                 case "sqlite" -> "EXPLAIN QUERY PLAN ";
                 case "postgresql" -> analyzed ? "EXPLAIN (ANALYZE, BUFFERS) " : "EXPLAIN ";
                 default -> analyzed ? "EXPLAIN ANALYZE " : "EXPLAIN ";
             };
-            // EXPLAIN ANALYZE runs the query: whatever it does is rolled back.
+            return prefix + statement;
+        }, values, (rows, vendor) -> {
+            Map<String, Object> plan = new LinkedHashMap<>();
+            plan.put("vendor", vendor);
+            plan.put("alias", alias);
+            plan.put("analyzed", analyzed(analyze, vendor));
+            plan.put("lines", lines(rows, vendor).stream().map(Explain::line).toList());
+            return plan;
+        });
+    }
+
+    private static boolean analyzed(boolean analyze, String vendor) {
+        return analyze && (vendor.equals("postgresql") || vendor.equals("mysql") || vendor.equals("h2"));
+    }
+
+    /**
+     * The agent's request down the app's connection (AgentRequests), `{"sql", "params", "alias", ...}`: the EXPLAIN
+     * the agent wrote, run on the database of the span's alias, answered with its rows; the agent reads the plan they
+     * make. Whatever stops it is thrown, its message the answer's error.
+     */
+    static Map<String, Object> rows(Map<?, ?> request) throws SQLException {
+        String alias = request.get("alias") instanceof String named && !named.isEmpty() ? named : "default";
+        DataSource database = Jdbc.database(alias);
+        if (database == null) throw new IllegalArgumentException("The app has no database " + alias + " to run EXPLAIN on.");
+        if (!(request.get("sql") instanceof String sql) || !EXPLAIN.matcher(sql).find()) {
+            throw new IllegalArgumentException("Only an EXPLAIN is run.");
+        }
+        List<?> values = request.get("params") instanceof List<?> params ? params : List.of();
+        return query(database, vendor -> sql, values, (rows, vendor) -> {
+            ResultSetMetaData meta = rows.getMetaData();
+            List<String> columns = new ArrayList<>();
+            for (int i = 1; i <= meta.getColumnCount(); i++) columns.add(meta.getColumnLabel(i));
+            List<List<Object>> cells = new ArrayList<>();
+            while (rows.next()) {
+                List<Object> row = new ArrayList<>();
+                for (int i = 1; i <= columns.size(); i++) row.add(Jdbc.scalar(rows.getObject(i)));
+                cells.add(row);
+            }
+            Map<String, Object> answer = new LinkedHashMap<>();
+            answer.put("columns", columns);
+            answer.put("rows", cells);
+            return answer;
+        });
+    }
+
+    /** What the EXPLAIN's rows are read into. */
+    private interface Read<T> {
+        T read(ResultSet rows, String vendor) throws SQLException;
+    }
+
+    /**
+     * The EXPLAIN `sql` writes for the database's vendor, run with `values`, its rows read by `read`. On a connection of
+     * its own, never in the app's transaction; whatever it did (EXPLAIN ANALYZE runs the query) rolled back. The agent
+     * waits for it for 15 seconds: the database is told to give up then too.
+     */
+    private static <T> T query(DataSource database, java.util.function.Function<String, String> sql, List<?> values, Read<T> read)
+            throws SQLException {
+        try (Connection connection = database.getConnection()) {
+            String vendor = connection.getMetaData().getDatabaseProductName().toLowerCase(java.util.Locale.ROOT).replace(" ", "");
             boolean auto = connection.getAutoCommit();
             connection.setAutoCommit(false);
-            try (PreparedStatement explain = connection.prepareStatement(prefix + statement)) {
+            try (PreparedStatement explain = connection.prepareStatement(sql.apply(vendor))) {
+                try {
+                    explain.setQueryTimeout(TIMEOUT_SECONDS);
+                } catch (SQLException e) {
+                    // A driver without one: the agent stops waiting all the same.
+                }
                 for (int i = 0; i < values.size(); i++) bind(explain, i + 1, values.get(i), vendor);
                 try (ResultSet rows = explain.executeQuery()) {
-                    Map<String, Object> plan = new LinkedHashMap<>();
-                    plan.put("vendor", vendor);
-                    plan.put("alias", alias);
-                    plan.put("analyzed", analyzed);
-                    plan.put("lines", lines(rows, vendor).stream().map(Explain::line).toList());
-                    return plan;
+                    return read.read(rows, vendor);
                 }
             } finally {
                 connection.rollback();

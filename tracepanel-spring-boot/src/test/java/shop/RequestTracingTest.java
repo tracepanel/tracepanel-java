@@ -142,6 +142,6 @@ class RequestTracingTest {
 
         assertThat(traceNamed("unprofiled")).doesNotContainKey("profile");
 
-        assertThat(FakeAgent.HELLOS).anySatisfy(hello -> assertThat(hello).contains("\"capabilities\":[\"profile\",\"request\",\"live_tasks\"]"));
+        assertThat(FakeAgent.HELLOS).anySatisfy(hello -> assertThat(hello).contains("\"capabilities\":[\"explain\",\"profile\",\"request\",\"live_tasks\"]"));
     }
 }
