@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-10-29)
+
+The SDK downloads `tracepanel-agent` 0.7.0 the first time. It shows a
+request across the apps it went through: a frontend's call, a BFF and the
+Spring or Ktor service behind it are one tree. The DB, HTTP calls, Logs,
+Issues and Profile tabs cover the whole chain, and an N+1 across apps is
+found on the trace that made the calls. EXPLAIN of a query runs in the app
+that recorded it, from any console.
 
 ### Added
 
