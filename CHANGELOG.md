@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-10-29)
+
+The SDK downloads `tracepanel-agent` 0.8.0 the first time. A shared
+snapshot holds the request's whole chain of calls, the chain's Profile tab
+has the memory its traces counted, and the MCP tool `get_profile` reads
+the profiles of the traces down a trace's calls too.
 
 ### Added
 
@@ -12,7 +17,13 @@
   that receives it profiles its trace, and asks the same of the calls and
   messages it makes in turn. Not for a trace only `TRACEPANEL_PROFILE`
   profiles, and never over a header the app set itself.
-  `Messages.receive` takes the header's value.
+
+### Changed
+
+- `Messages.receive` takes the received `tracepanel-profile` header's value
+  as a new argument. Code that calls it directly, for a message system the
+  SDK doesn't trace, passes that header's value, or null when the message
+  has none.
 
 ## 0.7.0 (2026-10-29)
 
