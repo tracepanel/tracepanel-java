@@ -174,8 +174,9 @@ public final class Tracepanel {
     /**
      * Profiles a trace whose request asked for it, with an X-Tracepanel-Profile header or the panel's
      * tracepanel_profile cookie (Profiler.asked): `asked` is what it asked for, "1" or "memory", or null for nothing.
-     * Its calls to other apps over HTTP ask the same (HttpCalls.Call.profile), so the whole chain is profiled; a trace
-     * only the TRACEPANEL_PROFILE setting profiles asks nothing of them.
+     * Its calls to other apps over HTTP ask the same (HttpCalls.Call.profile), and so do the messages it sends
+     * (Messages.Publish.profile), so the whole chain is profiled; a trace only the TRACEPANEL_PROFILE setting profiles
+     * asks nothing of them.
      */
     public void profile(Trace trace, String asked) {
         if (asked == null || !config.profileEnabled()) return;

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A profile asked for follows Kafka and RabbitMQ messages too: a record a
+  `KafkaTemplate` sends, or a message a `RabbitTemplate` publishes, from a
+  request profiled because it asked carries its `X-Tracepanel-Profile`
+  value as a `tracepanel-profile` header, next to its `traceparent`, as
+  the Python SDK's messages do. The `@KafkaListener` or `@RabbitListener`
+  that receives it profiles its trace, and asks the same of the calls and
+  messages it makes in turn. Not for a trace only `TRACEPANEL_PROFILE`
+  profiles, and never over a header the app set itself.
+  `Messages.receive` takes the header's value.
+
 ## 0.7.0 (2026-10-29)
 
 The SDK downloads `tracepanel-agent` 0.7.0 the first time. It shows a

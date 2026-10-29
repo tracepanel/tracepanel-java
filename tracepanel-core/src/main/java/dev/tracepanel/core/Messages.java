@@ -20,6 +20,11 @@ public final class Messages {
      * it too, so the task queued is the one that runs.
      */
     public static final String TASK_ID = "tracepanel-task-id";
+    /**
+     * What the trace that sent it was asked to be profiled for ("1", "memory"), when its request asked: the receiving
+     * app profiles the message's trace too, as an HTTP call's X-Tracepanel-Profile asks of the app it reaches.
+     */
+    public static final String PROFILE = "tracepanel-profile";
 
     // The publish under way on this thread: the broker client's hook, deeper in the same call, adds its traceparent.
     private static final ThreadLocal<Publish> PUBLISHING = new ThreadLocal<>();
@@ -79,6 +84,14 @@ public final class Messages {
             return W3c.outgoing(trace, spanId);
         }
 
+        /**
+         * What its message asks the app that receives it to profile its trace for (PROFILE): what the sending trace's
+         * request asked for, else null. A trace only the TRACEPANEL_PROFILE setting profiles asks nothing.
+         */
+        public String profile() {
+            return trace.asked;
+        }
+
         /** The task id its message carries (TASK_ID): once it does, the publish is the task's enqueue in Live. */
         public String taskId() {
             if (taskId == null) taskId = Ulid.next();
@@ -121,10 +134,11 @@ public final class Messages {
      * A message received: a task trace of its own, `name` the destination until the listener names it, linked to the
      * publish by its traceparent, and a task running in the console's Live from now until `done`. `taskId` is the
      * one its message carries (TASK_ID), else the broker's for it (null: a new one); `retries`, how many times it
-     * was delivered before. Null when Tracepanel is off, or the thread already works for a trace.
+     * was delivered before; `profile`, what its message asks its trace to be profiled for (PROFILE), or null. Null
+     * when Tracepanel is off, or the thread already works for a trace.
      */
     public static Trace receive(String system, String destination, String traceparent, String sentBy, String taskId, long retries,
-            Map<String, Object> attrs) {
+            String profile, Map<String, Object> attrs) {
         Tracepanel tracepanel = Tracepanel.get();
         if (tracepanel == null || Tracepanel.current() != null) return null;
         String id = taskId == null || taskId.isEmpty() ? Ulid.next() : taskId;
@@ -147,6 +161,8 @@ public final class Messages {
         all.put("task.trigger", linked || caller.containsKey("w3c.parent_span_id") ? "message" : "other");
         Trace trace = tracepanel.begin("task", "task.run", destination, all);
         if (linked) trace.link("sent_by", sender[0], sender[1]);
+        // Sent by a trace whose request asked to be profiled: this one is profiled too, and asks the same further on.
+        tracepanel.profile(trace, Profiler.asking(profile));
         tracepanel.tasks().started(system, id, destination, destination, retries);
         return trace;
     }

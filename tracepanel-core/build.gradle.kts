@@ -17,6 +17,7 @@ dependencies {
     testFixturesImplementation("com.jayway.jsonpath:json-path:2.9.0")
     testImplementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.16"))
     testImplementation("org.apache.logging.log4j:log4j-core")
+    testImplementation("org.apache.kafka:kafka-clients")
     // A database for EXPLAIN to run on.
     testImplementation("com.h2database:h2")
     testCompileOnly("biz.aQute.bnd:biz.aQute.bnd.annotation:7.4.0")

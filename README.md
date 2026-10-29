@@ -311,9 +311,12 @@ A profile asked for follows the whole chain: the calls such a request makes
 to other apps (RestClient, RestTemplate, WebClient, the JDK's HttpClient,
 Ktor's client with `TracepanelClient`) carry the same
 `X-Tracepanel-Profile` value next to their `traceparent`, so the services
-it calls profile their traces too. A trace only `TRACEPANEL_PROFILE`
-profiles asks nothing of them: each app's own setting decides for its
-traces. A header the app sets itself is the one that goes.
+it calls profile their traces too. The Kafka and RabbitMQ messages it
+sends (`KafkaTemplate`, `RabbitTemplate`) carry it as a
+`tracepanel-profile` header, so the listener that receives one profiles
+its trace too. A trace only `TRACEPANEL_PROFILE` profiles asks nothing of
+them: each app's own setting decides for its traces. A header the app sets
+itself is the one that goes.
 
 The agent is a program of its own, which keeps the traces and finds the
 issues. You don't install it: the SDK downloads its own version of it the
