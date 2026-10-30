@@ -12,7 +12,7 @@ plugins {
 
 allprojects {
     group = "dev.tracepanel"
-    version = "0.8.0"
+    version = "0.9.0"
 }
 
 subprojects {
