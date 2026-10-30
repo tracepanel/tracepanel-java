@@ -87,7 +87,7 @@ dependencies: `./gradlew bootRun --args='--spring.profiles.active=dev'`, or
 `./mvnw spring-boot:run -Pdev -Dspring-boot.run.profiles=dev` (`-Pdev` is
 the Maven profile above, the property Spring's). Spring Boot picks
 Tracepanel up by its auto-configuration: there is no code to add. Open a
-page or the Swagger UI for the badge; the console is at `/__tracepanel__/`
+page or the Swagger UI for the badge. The console is at `/__tracepanel__/`
 on your app.
 
 Tracepanel turns on in development: with a `dev`, `development` or `local`
@@ -133,60 +133,35 @@ fix:
 
 ### Spring Boot
 
-- Each request, named by its route (`GET /owners/{id}`), with the controller
-  method that served it.
-- SQL through JDBC, whatever runs it (Spring Data JPA, Hibernate,
-  `JdbcTemplate`, jOOQ): each statement with its parameters, the rows it
-  returned and the line of your code that ran it, and each transaction.
-- Logback and Log4j 2 records made during a request, with the line that logged
-  them, their MDC and their exception.
-- Errors a handler throws, with your frames and the source around them. An
-  exception the app answers with a 4xx is the answer, not an error.
-- Calls to HTTP APIs through `RestClient`, `RestTemplate`, `WebClient` and
-  the JDK's `HttpClient` (a bean, or one you wrap with
-  `HttpCalls.wrap(client)`), each with a `traceparent`, so the app it
-  reaches links its trace to the call.
-- Redis commands through Lettuce (Spring Data Redis, the cache) and MongoDB
-  commands (Spring Data MongoDB), with their N+1 and duplicates.
-- Kafka and RabbitMQ messages a `KafkaTemplate` or a `RabbitTemplate`
-  sends, with their N+1. Each message a `@KafkaListener` or
-  `@RabbitListener` receives is a trace of its own, delivered from the one
-  that sent it.
-- A handler that answers later (a Kotlin suspend function, a `Callable`, a
-  `DeferredResult`) is one trace until its answer. A suspend function's
-  queries are in it on whichever thread they run: `Dispatchers.IO`, after
-  a `delay`, in `async` blocks.
-- Work besides requests: an `@Async` method's run is a task, linked to the
-  request that queued it; an `@Scheduled` method's run and a
-  `CommandLineRunner`'s are jobs.
-- Tasks in flight, on the Tasks page's Now: `@Async` and `@Scheduled`
-  runs and the messages your listeners handle, queued and running, with
-  your app as their worker.
-- The signed-in user: the principal's name from Spring Security, when the
-  app has it, or the user your code names with
-  `Tracepanel.setUser(id, username)`. The username stays on your machine.
-
-WebFlux apps aren't supported yet.
+- Each request, named by its route (`GET /owners/{id}`), with its controller
+  method.
+- SQL through JDBC (Spring Data JPA, Hibernate, `JdbcTemplate`, jOOQ), with
+  the line that ran it.
+- Transactions, with the statements inside them.
+- Logback and Log4j 2 records, with their line, MDC and exception.
+- Errors a handler throws, with your frames and the source around them.
+- Calls through `RestClient`, `RestTemplate`, `WebClient` and the JDK's
+  `HttpClient`.
+- Redis commands through Lettuce, and MongoDB commands through Spring Data
+  MongoDB.
+- Kafka and RabbitMQ messages sent, and each one received as a trace.
+- Kotlin suspend, `Callable` and `DeferredResult` handlers, as one trace until
+  the answer.
+- `@Async` methods as tasks, `@Scheduled` methods and `CommandLineRunner`s as
+  jobs.
+- The signed-in user from Spring Security, or
+  `Tracepanel.setUser(id, username)`.
 
 ### Ktor
 
-- Each call, named by its route (`GET /books/{id}`), with its handler as a
-  span of the same name. Its coroutines carry the trace to every thread
-  they run on, so the queries of a suspended transaction on
-  `Dispatchers.IO` are in it.
-- SQL through the DataSource `Jdbc.dataSource` wraps, whatever runs it
-  (Exposed, plain JDBC): each statement with its parameters, the rows it
-  returned and the line of your code that ran it, and each transaction.
-- Calls through the client with `TracepanelClient`, each with a
-  `traceparent`.
-- Logback and Log4j 2 records made during a call, with the line that logged
-  them, their MDC and their exception.
-- Errors a call fails with. One that StatusPages answers with a 4xx is the
-  answer, not an error.
-- The badge on HTML pages, however they were written (`respondText`,
-  `respondHtml`).
-- The signed-in user your code names with
+- Each call, named by its route (`GET /books/{id}`), its coroutines included.
+- SQL through `Jdbc.dataSource` (Exposed, plain JDBC), and calls through
+  `TracepanelClient`.
+- Logs and errors as in Spring Boot, and the user from
   `call.tracepanelUser(id, username)`.
+
+What each integration records, and its limits, are in
+[Integrations](https://tracepanel.dev/docs/java/integrations).
 
 ## In tests
 
@@ -231,20 +206,16 @@ class FeedTest {
 }
 ```
 
-Tracepanel turns on in the test JVM as in development, without the badge
-on the pages the tests read, and the extension starts the project's agent
-unless one runs. Each test's body is a trace of kind `test`. A request it
-makes of the app, with `MockMvc`, `TestRestTemplate`, `WebTestClient` or
-Ktor's `testApplication` client, is a call of that trace, and the app's
-trace of it is linked to the test. Spring Boot's test slices
-(`@WebMvcTest`, `@JdbcTest`, `@DataJpaTest`, `@DataJdbcTest`, `@JooqTest`)
-are traced as a full `@SpringBootTest` is. Outside Spring, wrap the
-`DataSource` with `Jdbc.dataSource(dataSource, "default")`.
+The extension starts the project's agent unless one runs. A request the
+test makes of the app, with `MockMvc`, `TestRestTemplate`, `WebTestClient`
+or Ktor's `testApplication` client, is linked to the test's trace. Spring
+Boot's test slices, such as `@WebMvcTest` and `@DataJpaTest`, are traced
+too. Outside Spring, wrap the `DataSource` with
+`Jdbc.dataSource(dataSource, "default")`.
 
-Once a test has passed, the agent is asked what it found in the test's
-trace and in its requests'. An issue of a kind that fails tests fails it,
-with the issue, its query, the line of your code that made it and a link
-to the trace in the console:
+When a test passes, the agent looks at its traces. An issue of a kind that
+fails tests fails it, with the issue, its query, the line of your code that
+made it and a link to the trace:
 
 ```
 tracepanel found 1 issue in this test:
@@ -260,96 +231,44 @@ Allowed here with @Tracepanel(allow = "n+1").
 
 `n+1` and `duplicates` fail a test by default. The `tracepanel.failOn`
 configuration parameter names others, in `junit-platform.properties` or as
-a system property: `tracepanel.failOn=n+1, duplicates, slow-sql`. The kinds
-are `n+1`, `duplicates`, `slow-sql`, `slow-http`, `slow-call`, `error`,
-`long-transaction`, `in-transaction`, `htmx`, `queue-wait`,
-`blocking-call` and `large-result`; a misspelled one fails the test that
-names it.
+a system property: `tracepanel.failOn=n+1, duplicates, slow-sql`.
 
-`@Tracepanel` on a test method or class says what fails its tests:
-`failOn` instead of the run's kinds, `allow` takes kinds out, and
-`maxQueries` fails a test that makes more queries. The nearest says first:
-the method's, then its class's, then the classes around it.
+`@Tracepanel` on a test method or class changes its rules. `failOn` replaces
+the kinds, `allow` takes kinds out, and `maxQueries` caps the queries. The
+method's rules come first, then its class's.
 
-A test method can take the test's trace as a `TestTrace` parameter, or get
-it from `TracepanelExtension.testTrace()`: `queries()` and `sql()` are the
-queries so far, its requests' included, `issues()` what the agent found,
-`url()` the trace in the console. `maxQueries(n, () -> ...)` fails when the
-block makes more than `n` queries.
+`TestTrace`, as a parameter or from `TracepanelExtension.testTrace()`, has
+the queries so far (`queries()`, `sql()`), `issues()` and the trace's
+`url()`. `maxQueries(n, () -> ...)` fails when the block makes more than `n`
+queries.
 
-Without an agent (`TRACEPANEL_AGENT=off`, or none for the platform) the
-tests run as usual, and one warning says that issues aren't checked:
-`maxQueries` still is, as counting queries needs no agent.
+Without an agent (`TRACEPANEL_AGENT=off`) the tests run without findings,
+and one warning says so. Query counts need no agent.
 `TRACEPANEL_ENABLED=0` turns the extension off.
 
 ## In every app
 
-Every response carries `Tracepanel-Id` and `Server-Timing`. A single-page app
-on another origin reads them too: the SDK exposes them on CORS responses. A
-request that carries a W3C `traceparent` continues the caller's trace. A
-form's POST that redirects to a page names itself in a short-lived cookie,
-so the panel on that page lists the POST before it.
+Every response carries `Tracepanel-Id` and `Server-Timing`, on CORS
+responses too. A request that carries a W3C `traceparent` continues the
+caller's trace.
 
-A query no code of yours made, such as one Jackson set off writing a lazy
-relation, is shown with the library code that asked for it.
+A trace holds what its request carried: headers, query, cookies, the body
+the app read, the session and the answer's headers, secrets masked.
+`TRACEPANEL_CAPTURE_REQUEST=0` leaves it out.
 
-A trace holds what its request carried, for the console's Request tab: its
-headers, query, cookies and body, the session (Spring's `HttpSession`, Ktor's
-Sessions plugin), and the answer's headers. A body is only what the app read itself, up to 16 KB: the SDK never
-reads one for the app, and an upload is a file name and a size. A JSON body
-and a form have their secrets masked. `TRACEPANEL_CAPTURE_REQUEST=0` leaves
-all of it out.
+The panel's Profile button, or an `X-Tracepanel-Profile: 1` header, profiles
+a request as a flame graph. The ask follows its HTTP calls and Kafka and
+RabbitMQ messages to the apps they reach. `TRACEPANEL_PROFILE=1` profiles
+every trace.
 
-The console's Profile button profiles the next request: a sampling
-profiler reads the stack of the thread running it every millisecond, and
-the trace shows where its time went as a flame graph. A request with an
-`X-Tracepanel-Profile: 1` header is profiled too (`memory` profiles its
-time here: this SDK has no memory profile), and `TRACEPANEL_PROFILE=1`
-profiles every trace. A request nobody asked to profile costs nothing.
+The SDK downloads its agent the first time, checks its checksum and keeps it
+in `~/.cache/tracepanel/`. It comes from Maven Central, or from the mirror in
+`~/.m2/settings.xml`, through `HTTPS_PROXY` or the JVM's proxy. Without a
+network it runs `tracepanel-agent` from the `PATH`. Mirrors and proxies are
+in [Installation](https://tracepanel.dev/docs/java/installation#behind-a-mirror-or-a-proxy).
 
-A profile asked for follows the whole chain: the calls such a request makes
-to other apps (RestClient, RestTemplate, WebClient, the JDK's HttpClient,
-Ktor's client with `TracepanelClient`) carry the same
-`X-Tracepanel-Profile` value next to their `traceparent`, so the services
-it calls profile their traces too. The Kafka and RabbitMQ messages it
-sends (`KafkaTemplate`, `RabbitTemplate`) carry it as a
-`tracepanel-profile` header, so the listener that receives one profiles
-its trace too. A trace only `TRACEPANEL_PROFILE` profiles asks nothing of
-them: each app's own setting decides for its traces. A header the app sets
-itself is the one that goes.
-
-The agent is a program of its own, which keeps the traces and finds the
-issues. You don't install it: the SDK downloads its own version of it the
-first time, checks it against the checksum it was built with, and keeps it
-in `~/.cache/tracepanel/` for every project. `TRACEPANEL_AGENT_BIN` names
-another one, and without a network the SDK runs `tracepanel-agent` from the
-`PATH`.
-
-The agent comes from Maven Central, as
-`dev.tracepanel:tracepanel-agent` with your platform as its classifier, and
-from its npm package when Maven Central has none. Where a company mirrors
-Maven Central, with Artifactory or Nexus, the SDK uses the mirror that
-`~/.m2/settings.xml` names, with its server's login (`${env.NAME}` works,
-a password Maven encrypted doesn't). `TRACEPANEL_MAVEN_REPOSITORY` names
-another repository, a login in its URL. The checksum is the binary's, so it
-holds wherever the agent comes from.
-
-Behind a company proxy, the download goes through `HTTPS_PROXY`, as curl
-and npm read it, with `NO_PROXY` for the hosts that skip it. Without them it
-uses the JVM's proxy (`-Dhttps.proxyHost`, or
-`-Djava.net.useSystemProxies=true` for the system's). A login goes in the
-proxy's URL: `http://user:password@proxy.corp:3128`. For a proxy that asks
-for a Basic login, start the JVM with
-`-Djdk.http.auth.tunneling.disabledSchemes=`, as the JDK sends none to an
-https site through a proxy otherwise.
-
-The console answers this machine only: the traces hold SQL parameters, logs
-and errors, and EXPLAIN runs queries. When the app runs in a container, or on
-a shared dev server, `TRACEPANEL_CONSOLE_REMOTE=1` lets other machines open
-it. Values under a secret's name (`password`, `token`, `api_key`, `session`,
-…) are masked before they are recorded: in the query of an outgoing call's
-URL, which also loses its `user:password@`, and in a SQL parameter bound to
-such a column (`password = ?`, `INSERT INTO users (email, password)`).
+The console answers this machine only. `TRACEPANEL_CONSOLE_REMOTE=1` lets
+other machines open it, as an app in a container needs.
 
 Add `.tracepanel/` to your `.gitignore`: it holds the project's traces.
 
