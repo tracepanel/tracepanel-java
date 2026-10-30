@@ -14,6 +14,10 @@ import java.util.regex.Pattern;
  */
 public final class Sql {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    // A comment ("-- a note" to the line's end, sqlcommenter's block of tags), or a string or quoted name, whose "--"
+    // and "/*" are its text: matched so a comment is told from a string that looks like one.
+    private static final Pattern COMMENT =
+            Pattern.compile("(?s)(--[^\\n]*)|(/\\*.*?\\*/)|'[^']*(?:''[^']*)*'|\"[^\"]*(?:\"\"[^\"]*)*\"|`[^`]*`");
     private static final Pattern IN_LIST =
             Pattern.compile("\\bIN \\((?:%s|\\?|\\$\\d+)(?:, ?(?:%s|\\?|\\$\\d+))*\\)", Pattern.CASE_INSENSITIVE);
     private static final Pattern TABLE =
@@ -22,15 +26,33 @@ public final class Sql {
 
     private Sql() {}
 
+    /** The statement on one line, a line comment ("-- a note") closed so the line it ended still reads as SQL. */
     public static String statement(String sql) {
-        return WHITESPACE.matcher(sql).replaceAll(" ").trim();
+        String closed = sql.contains("--")
+                ? COMMENT.matcher(sql).replaceAll(found -> Matcher.quoteReplacement(found.group(1) == null
+                        ? found.group()
+                        : "/* " + found.group(1).substring(2).trim().replace("*/", "* /") + " */"))
+                : sql;
+        return WHITESPACE.matcher(closed).replaceAll(" ").trim();
+    }
+
+    /** The one-line statement without its comments (an ORM's or sqlcommenter's tags, a note): what names and groups it. */
+    static String uncommented(String sql) {
+        if (!sql.contains("--") && !sql.contains("/*")) {
+            return statement(sql);
+        }
+        return statement(COMMENT.matcher(sql).replaceAll(found -> found.group(1) == null && found.group(2) == null
+                ? Matcher.quoteReplacement(found.group())
+                : " "));
     }
 
     public static String fingerprint(String sql) {
-        return IN_LIST.matcher(statement(sql)).replaceAll("IN (...)");
+        return IN_LIST.matcher(uncommented(sql)).replaceAll("IN (...)");
     }
 
-    public static String spanName(String sql) {
+    /** The verb and the table, the statement's comments left out. */
+    public static String spanName(String commented) {
+        String sql = uncommented(commented);
         String trimmed = sql.trim();
         String verb = COUNT.matcher(sql).find()
                 ? "SELECT COUNT"
