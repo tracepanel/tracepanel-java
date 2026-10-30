@@ -45,7 +45,7 @@ leaves it out. With Gradle:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    developmentOnly("dev.tracepanel:tracepanel-spring-boot:0.8.0")
+    developmentOnly("dev.tracepanel:tracepanel-spring-boot:0.9.0")
 }
 ```
 
@@ -59,7 +59,7 @@ With Maven, add it in a profile that only development runs use:
       <dependency>
         <groupId>dev.tracepanel</groupId>
         <artifactId>tracepanel-spring-boot</artifactId>
-        <version>0.8.0</version>
+        <version>0.9.0</version>
       </dependency>
     </dependencies>
   </profile>
@@ -71,7 +71,7 @@ Ktor:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tracepanel:tracepanel-ktor:0.8.0")
+    implementation("dev.tracepanel:tracepanel-ktor:0.9.0")
 }
 ```
 
@@ -172,7 +172,7 @@ the app. Add it to the test dependencies, next to the framework's:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    testImplementation("dev.tracepanel:tracepanel-junit:0.8.0")
+    testImplementation("dev.tracepanel:tracepanel-junit:0.9.0")
 }
 ```
 
