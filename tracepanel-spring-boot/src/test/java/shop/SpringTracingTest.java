@@ -538,7 +538,7 @@ class SpringTracingTest {
                 ]""";
         String message = file + ":" + line + " basket\n"
                 + "    basket: " + basket.replace("\n", "\n    ") + " (Basket)\n"
-                + "    skus: [\"pen\", \"ink\"] (ListN) len=2\n"
+                + "    skus: [\"pen\", \"ink\"] (List) len=2\n"
                 + "    stock: {\"ink\"=3, \"pen\"=40} (LinkedHashMap) len=2\n"
                 + "    \"checked\" (String) len=7";
         Map<String, Object> log = new LinkedHashMap<>(logs.get(0));
@@ -560,7 +560,7 @@ class SpringTracingTest {
                 "dump.lang", "java",
                 "dump.args", List.of(
                         arg("basket", basket, "Basket", null),
-                        arg("skus", "[\"pen\", \"ink\"]", "ListN", 2),
+                        arg("skus", "[\"pen\", \"ink\"]", "List", 2),
                         arg("stock", "{\"ink\"=3, \"pen\"=40}", "LinkedHashMap", 2),
                         arg(null, "\"checked\"", "String", 7)),
                 "code.origin", file + ":" + line + " in basket"));

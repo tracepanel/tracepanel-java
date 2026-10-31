@@ -188,7 +188,7 @@ class KtorTracingTest {
                 get("/picks") {
                     val pick = Pick("One", 2)
                     val note = Note("wrap it", urgent = false)
-                    dump(pick, note, pick.copies * 3)
+                    dump(pick, note, pick.copies * 3, mapOf<String, Int>())
                     call.respondText("picked")
                 }
                 get("/report") {
@@ -527,7 +527,7 @@ class KtorTracingTest {
         assertEquals("picked", client.get("/picks").bodyAsText())
         val trace = FakeAgent.traceAt("/picks")
         val file = "src/test/kotlin/shop/KtorTracingTest.kt"
-        val line = java.io.File(file).readLines().indexOf("                    dump(pick, note, pick.copies * 3)") + 1
+        val line = java.io.File(file).readLines().indexOf("                    dump(pick, note, pick.copies * 3, mapOf<String, Int>())") + 1
         @Suppress("UNCHECKED_CAST")
         val log = (trace["logs"] as List<Map<String, Any?>>).single()
         val method = log["message"].toString().lineSequence().first().substringAfterLast(' ')
@@ -541,7 +541,8 @@ class KtorTracingTest {
                 "message" to "$file:$line $method\n" +
                     "    pick: Pick(book=One, copies=2) (Pick)\n" +
                     "    note: Note(text=\"wrap it\", urgent=false) (Note)\n" +
-                    "    pick.copies * 3: 6 (Integer)",
+                    "    pick.copies * 3: 6 (Integer)\n" +
+                    "    mapOf<String, Int>(): {} (Map) len=0",
                 "exception" to null,
                 "attrs" to mapOf(
                     "log.kind" to "dump",
@@ -550,6 +551,7 @@ class KtorTracingTest {
                         mapOf("expr" to "pick", "repr" to "Pick(book=One, copies=2)", "type" to "Pick", "len" to null),
                         mapOf("expr" to "note", "repr" to "Note(text=\"wrap it\", urgent=false)", "type" to "Note", "len" to null),
                         mapOf("expr" to "pick.copies * 3", "repr" to "6", "type" to "Integer", "len" to null),
+                        mapOf("expr" to "mapOf<String, Int>()", "repr" to "{}", "type" to "Map", "len" to 0),
                     ),
                     "code.origin" to "$file:$line in $method",
                 ),

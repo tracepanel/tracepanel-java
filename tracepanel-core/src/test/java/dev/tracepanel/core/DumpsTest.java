@@ -9,13 +9,17 @@ import java.lang.invoke.MethodType;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +47,10 @@ class DumpsTest {
             super(name);
             this.on = on;
         }
+    }
+
+    private interface Step {
+        void run();
     }
 
     private final ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -215,7 +223,7 @@ class DumpsTest {
         Tracepanel.dump(tags);
 
         assertEquals(FILE + ":" + line + " outside_a_trace_a_dump_prints_and_records_nothing\n"
-                + "    tags: [\"new\"] (List12) len=1" + System.lineSeparator(), printed());
+                + "    tags: [\"new\"] (List) len=1" + System.lineSeparator(), printed());
         assertEquals(List.of(), logs(trace));
     }
 
@@ -237,8 +245,8 @@ class DumpsTest {
     void without_the_caller_s_source_each_expression_is_null() {
         Dumps.Dump dump = Dumps.build(new Object[] {5, List.of()}, new Frame("elsewhere.Gone", "Gone.java", 12, "run"));
 
-        assertEquals("elsewhere/Gone.java:12 run\n    5 (Integer)\n    [] (ListN) len=0", dump.message());
-        assertEquals(attrs(List.of(arg(null, "5", "Integer", null), arg(null, "[]", "ListN", 0)),
+        assertEquals("elsewhere/Gone.java:12 run\n    5 (Integer)\n    [] (List) len=0", dump.message());
+        assertEquals(attrs(List.of(arg(null, "5", "Integer", null), arg(null, "[]", "List", 0)),
                 "elsewhere/Gone.java:12 in run"), dump.attrs());
     }
 
@@ -255,6 +263,71 @@ class DumpsTest {
         assertEquals(null, Dumps.exprs(java, 1, 3));
         assertEquals(null, Dumps.exprs(List.of("int x = 1;"), 1, 1));
         assertEquals(null, Dumps.exprs(List.of("dump(a,"), 1, 1));
+    }
+
+    @Test
+    void a_jdk_class_that_isn_t_public_an_anonymous_class_and_a_lambda_go_by_the_public_type_they_are() {
+        List<Integer> list = new ArrayList<>(List.of(1, 2, 3));
+        Map<String, Integer> map = new HashMap<>(Map.of("a", 1));
+        Runnable lambda = () -> {};
+        Runnable anonymous = new Runnable() {
+            @Override
+            public void run() {}
+        };
+        List<String> anonymousList = new AbstractList<>() {
+            @Override
+            public String get(int index) {
+                return "x";
+            }
+
+            @Override
+            public int size() {
+                return 1;
+            }
+        };
+        Object[] values = {List.of(1, 2), List.of(1, 2, 3), Set.of(1), Set.of(1, 2, 3), Map.of("a", 1),
+                Map.of("a", 1, "b", 2), List.of(), Collections.unmodifiableList(list), Collections.synchronizedList(list),
+                list.subList(0, 1), Arrays.asList(1, 2), Collections.emptyList(), map.keySet(), map.values(),
+                map.entrySet().iterator().next(), Map.entry("a", 1), Collections.unmodifiableCollection(list), list,
+                map, new LinkedHashMap<>(), new TreeMap<>(), lambda, anonymous, anonymousList, new Order(1, BigDecimal.ONE, List.of()),
+                new Shipped("p", LocalDate.of(2026, 1, 1)), new List<?>[0], 'c'};
+
+        assertEquals(List.of("List", "List", "Set", "Set", "Map", "Map", "List", "List", "List", "List", "List", "List",
+                        "Set", "Collection", "Map.Entry", "Map.Entry", "Collection", "ArrayList", "HashMap", "LinkedHashMap",
+                        "TreeMap", "Runnable", "Runnable", "List", "Order", "Shipped", "List[]", "Character"),
+                Arrays.stream(values).map(value -> Dumps.typeName(value.getClass())).toList());
+        // A lambda of an interface that isn't public: nothing public to go by.
+        Step step = () -> {};
+        assertEquals("lambda", Dumps.typeName(step.getClass()));
+    }
+
+    @Test
+    void type_arguments_are_brackets_and_a_comparison_is_not() {
+        List<String> java = List.of(
+                "Tracepanel.dump(new HashMap<String, List<Integer>>(), List.<String, Integer>of(), a < b, c > d, f(x<y, z>w));");
+        List<String> kotlin = List.of("dump(mapOf<String, Int>(), x as Map<String, (Int) -> Int>, i<n, j>0, p < q && r > s)");
+
+        assertEquals(List.of("new HashMap<String, List<Integer>>()", "List.<String, Integer>of()", "a < b", "c > d",
+                "f(x<y, z>w)"), Dumps.exprs(java, 1, 5));
+        assertEquals(List.of("mapOf<String, Int>()", "x as Map<String, (Int) -> Int>", "i<n", "j>0", "p < q && r > s"),
+                Dumps.exprs(kotlin, 1, 5));
+        assertEquals(-1, Dumps.typeArguments("a<b && c>(d)", 1));
+        assertEquals(-1, Dumps.typeArguments("a<b; c>(d)", 1));
+        assertEquals(-1, Dumps.typeArguments("a<b = c>(d)", 1));
+        assertEquals(15, Dumps.typeArguments("a<b, Map<c, d>>(e)", 1));
+    }
+
+    @Test
+    void of_several_calls_on_a_line_the_one_at_the_frame_s_column_else_the_first() {
+        List<String> line = List.of("    dump(a, b); Tracepanel.dump(c, d); dump(e, f)");
+
+        assertEquals(List.of("a", "b"), Dumps.exprs(line, 1, 0, 2));
+        assertEquals(List.of("a", "b"), Dumps.exprs(line, 1, 5, 2));
+        assertEquals(List.of("c", "d"), Dumps.exprs(line, 1, 21, 2));
+        assertEquals(List.of("c", "d"), Dumps.exprs(line, 1, 37, 2));
+        assertEquals(List.of("e", "f"), Dumps.exprs(line, 1, 40, 2));
+        // A column outside every call: the first, as without one.
+        assertEquals(List.of("a", "b"), Dumps.exprs(line, 1, 2, 2));
     }
 
     /** A frame of a class whose source isn't in the project. */
