@@ -3,6 +3,7 @@ package shop;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import dev.tracepanel.core.Tracepanel;
 import dev.tracepanel.testing.FakeAgent;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -95,6 +96,14 @@ class SpringTracingTest {
                     .containsEntry("logger", "shop.BookController");
             assertThat(((Map<String, Object>) log.get("attrs"))).containsEntry("code.filepath", "src/test/java/shop/BookController.java");
         });
+    }
+
+    @Test
+    void the_app_s_properties_set_what_the_variables_do() {
+        assertThat(Tracepanel.get().config().thresholds())
+                .containsEntry("slow_sql_ms", 100L)
+                .containsEntry("slow_sql_ms_by_db", Map.of("snowflake", 3000L))
+                .doesNotContainKey("long_transaction_ms_by_db");
     }
 
     @Test

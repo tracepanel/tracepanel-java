@@ -11,6 +11,14 @@
   `dump.lang` java or kotlin, `code.origin`), which the call tree always
   shows. A value under a secret's name is masked. Kotlin imports it as
   `dump(...)`.
+- A slow query and a long transaction limit per database:
+  `TRACEPANEL_SLOW_SQL_MS=100,snowflake=3000` holds Snowflake to 3 s and
+  every other database to 100 ms, and `TRACEPANEL_LONG_TRANSACTION_MS`
+  takes the same form. The hello sends them to the agent
+  (`slow_sql_ms_by_db`, `long_transaction_ms_by_db`).
+- The limits can be set in Spring's `application.properties` or YAML and
+  in Ktor's `application.conf` as well: `tracepanel.slow-sql-ms` and the
+  others, each named after its variable. A variable that is set wins.
 
 ## 0.9.0 (2026-10-30)
 

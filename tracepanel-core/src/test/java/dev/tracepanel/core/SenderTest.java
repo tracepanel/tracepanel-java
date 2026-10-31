@@ -261,6 +261,27 @@ class SenderTest {
     }
 
     @Test
+    void the_hello_sends_the_limits_set_per_database(@TempDir Path root) throws Exception {
+        Path store = root.resolve(".tracepanel");
+        Files.createDirectories(store);
+        Map<String, String> env = Map.of(
+                "TRACEPANEL_ROOT", root.toString(),
+                "TRACEPANEL_DIR", store.toString(),
+                "TRACEPANEL_SLOW_SQL_MS", "100,snowflake=3000",
+                "TRACEPANEL_LONG_TRANSACTION_MS", "snowflake=10000");
+        try (OneAgent agent = new OneAgent()) {
+            Files.writeString(store.resolve("agent.addr"), agent.address() + "\n");
+            new Sender(Config.load(env, "shop"), new Agent(store, env)).submit(Map.of("id", "first"));
+            assertTrue(agent.got("first"));
+
+            assertTrue(agent.hellos.get(0).contains("\"slow_sql_ms\":100,"), agent.hellos.get(0));
+            assertTrue(agent.hellos.get(0).contains(
+                    "\"slow_sql_ms_by_db\":{\"snowflake\":3000},\"long_transaction_ms_by_db\":{\"snowflake\":10000}"),
+                    agent.hellos.get(0));
+        }
+    }
+
+    @Test
     void the_hello_says_every_trace_is_profiled_when_the_settings_say_so() {
         Set<String> sends = Set.of("live_tasks");
 

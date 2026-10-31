@@ -1,6 +1,9 @@
 package shop
 
+import dev.tracepanel.core.Config
 import dev.tracepanel.core.Jdbc
+import dev.tracepanel.ktor.settings
+import io.ktor.server.config.MapApplicationConfig
 import dev.tracepanel.core.Tracepanel.dump
 import dev.tracepanel.ktor.Tracepanel
 import dev.tracepanel.ktor.TracepanelClient
@@ -231,6 +234,18 @@ class KtorTracingTest {
         @Suppress("UNCHECKED_CAST")
         val logs = trace["logs"] as List<Map<String, Any>>
         assertEquals(listOf("book 1"), logs.map { it["message"] })
+    }
+
+    @Test
+    fun the_app_s_config_sets_what_the_variables_do_and_a_variable_wins() {
+        val appConfig = MapApplicationConfig("tracepanel.slow-sql-ms" to "100,snowflake=3000", "tracepanel.long-transaction-ms" to "700")
+        val env = mapOf("TRACEPANEL_LONG_TRANSACTION_MS" to "900,snowflake=10000")
+
+        val config = Config.load(settings(appConfig, env::get), "shop")
+
+        assertEquals(mapOf("snowflake" to 3000L), config.thresholds()["slow_sql_ms_by_db"])
+        assertEquals(900L, config.thresholds()["long_transaction_ms"])
+        assertEquals(mapOf("snowflake" to 10000L), config.thresholds()["long_transaction_ms_by_db"])
     }
 
     @Test

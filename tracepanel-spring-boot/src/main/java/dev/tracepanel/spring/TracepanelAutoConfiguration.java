@@ -39,7 +39,10 @@ public class TracepanelAutoConfiguration {
 
     @Bean
     Tracepanel tracepanel(Environment environment, BeanFactory beans) {
-        Config config = Config.load(environment.getProperty("spring.application.name"));
+        // Each setting from its variable (TRACEPANEL_SLOW_SQL_MS), else from the app's properties (tracepanel.slow-sql-ms).
+        Config config = Config.load(
+                name -> environment.getProperty(name, environment.getProperty(Config.property(name))),
+                environment.getProperty("spring.application.name"));
         List<String> packages = AutoConfigurationPackages.has(beans) ? AutoConfigurationPackages.get(beans) : List.of();
         Tracepanel tracepanel = Tracepanel.start(config, packages);
         String kotlin = kotlinVersion(beans);
