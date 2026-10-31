@@ -56,4 +56,20 @@ class SecretsTest {
         assertEquals(Arrays.asList(1, "x"), Secrets.params("SELECT * FROM book WHERE id = ? AND title = ?", Arrays.asList(1, "x")));
         assertEquals(Arrays.asList((Object) null), Secrets.params("SELECT 1 FROM u WHERE password = ?", Arrays.asList((Object) null)));
     }
+
+    @Test
+    void a_name_is_a_secret_s_word_by_word_as_the_python_sdk_reads_it() {
+        List<String> names = List.of("password", "apiKey", "x-api-key", "Authorization", "csrftoken", "sessionId",
+                "card_number", "cvc", "accessTokens", "tokens", "author", "tokenizer", "passwordLength", "hasPassword",
+                "isPrivate", "token_type", "cookieName", "maxTokens", "name");
+
+        List<String> secret = names.stream().filter(Secrets::sensitive).toList();
+
+        assertEquals(List.of("password", "apiKey", "x-api-key", "Authorization", "csrftoken", "sessionId", "card_number",
+                "cvc", "accessTokens", "tokens"), secret);
+        assertEquals(true, Secrets.counted("tokens", 1024));
+        assertEquals(true, Secrets.counted("tokens", List.of(12, 7)));
+        assertEquals(false, Secrets.counted("tokens", List.of("abc")));
+        assertEquals(false, Secrets.counted("password", 1234));
+    }
 }

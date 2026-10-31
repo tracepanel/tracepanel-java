@@ -9,7 +9,14 @@
   value's expression, pretty text, type and length. In a trace it is also
   a log record of kind `dump` on the current span (`dump.args`,
   `dump.lang` java or kotlin, `code.origin`), which the call tree always
-  shows. A value under a secret's name is masked. Kotlin imports it as
+  shows. A secret is masked in the print and the record alike: a value
+  whose expression's last name is a secret's (`user.password`,
+  `getApiKey()`, `headers["Authorization"]`), and inside a value each
+  field, record component, map key or `name=value` pair of a class's own
+  text (a Kotlin data class's) under a secret's name. Names are read word
+  by word, as the Python SDK reads them: `author`, `tokens.size()`,
+  `tokenCount`, `hasPassword` and a model's numeric `tokens` are not
+  masked. Kotlin imports it as
   `dump(...)`. The expressions come from the call's source in any module
   of the Gradle or Maven build the app runs in, at any depth, or from the
   module of the class's own `build/classes` or `target/classes`, in every
