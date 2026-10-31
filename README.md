@@ -312,7 +312,10 @@ every trace, and `Tracepanel.profile()` one from the app's own code
 ([Profiling from code](#profiling-from-code)). A profiled trace says why in
 its root span's `profile.reason`:
 `setting`, `header`, `cookie`, `parent` (the calling app's trace asked) or
-`code`.
+`code`. When `TRACEPANEL_PROFILE=1` would profile the trace anyway, the
+reason is `setting`, whatever asked too. Otherwise it is the first ask that
+profiled the trace, and a later one (`Tracepanel.profile()` in a trace its
+request's header profiled) doesn't change it.
 
 ### Memory
 
