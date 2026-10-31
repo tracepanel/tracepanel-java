@@ -165,6 +165,7 @@ class KtorTracingTest {
                 get("/sold-out") { throw OutOfStock("only 2 left") }
                 get("/no-price") { throw PriceMissing("no price for book 3") }
                 get("/relay") { call.respondText(appClient.get("/books/2").bodyAsText()) }
+                get("/relay/{id}") { call.respondText(appClient.get("/books/${call.parameters["id"]}").bodyAsText()) }
                 // What a call is asked to profile for, as the app it reaches reads it; `own`: the app's own header.
                 get("/asked") { call.respondText(call.request.headers["X-Tracepanel-Profile"] ?: "none") }
                 get("/relay/asked") {
@@ -372,6 +373,24 @@ class KtorTracingTest {
         assertEquals("GET localhost/books/2", call["name"])
         assertEquals(200, (call["attrs"] as Map<*, *>)["http.response.status_code"])
         assertEquals((call["attrs"] as Map<*, *>)["w3c.span_id"], attrs(called)["w3c.parent_span_id"])
+    }
+
+    @Test
+    fun a_profiled_call_says_why_its_header_the_panel_s_cookie_or_the_calling_app_s_trace() = app {
+        client.get("/books/71") { header("X-Tracepanel-Profile", "1") }
+        client.get("/books/72") { header("Cookie", "theme=dark; tracepanel_profile=1") }
+        client.get("/relay/73") { header("X-Tracepanel-Profile", "1") }
+        client.get("/books/74")
+
+        val reasons = listOf("/books/71", "/books/72", "/relay/73", "/books/73", "/books/74").associateWith {
+            @Suppress("UNCHECKED_CAST")
+            (FakeAgent.traceAt(it)["attrs"] as Map<String, Any?>)["profile.reason"]
+        }
+
+        assertEquals(
+            mapOf("/books/71" to "header", "/books/72" to "cookie", "/relay/73" to "header", "/books/73" to "parent", "/books/74" to null),
+            reasons,
+        )
     }
 
     @Test

@@ -25,9 +25,14 @@ public final class Tracepanel {
     private volatile String framework;
 
     private Tracepanel(Config config, List<String> appPackages) {
+        this(config, appPackages, System.getenv());
+    }
+
+    /** One of its own, for a test: `env` says where its agent is (TRACEPANEL_AGENT). */
+    Tracepanel(Config config, List<String> appPackages, Map<String, String> env) {
         this.config = config;
         this.stacks = new Stacks(config.root(), appPackages);
-        this.agent = new Agent(config.storeDir(), System.getenv());
+        this.agent = new Agent(config.storeDir(), env);
         this.sender = new Sender(config, agent);
         this.profiler = new Profiler(stacks, config.profileIntervalMs());
         this.tasks = new LiveTasks(sender, config.service());
@@ -167,7 +172,7 @@ public final class Tracepanel {
         trace.attr("process.runtime.version", System.getProperty("java.version", ""));
         CURRENT.set(trace);
         // TRACEPANEL_PROFILE profiles every trace; a request may still ask for its own (profile).
-        if (config.profile()) profile(trace);
+        if (config.profile()) start(trace, Profiler.SETTING);
         Tests hooks = tests;
         if (hooks != null) hooks.begun(trace);
         return trace;
@@ -175,24 +180,42 @@ public final class Tracepanel {
 
     /**
      * Samples where the trace's time goes in code, from now to its end, when profiling is possible
-     * (TRACEPANEL_PROFILE_ENABLED). The trace is this thread's: begin made it so.
+     * (TRACEPANEL_PROFILE_ENABLED): the app's own code asks (its profile.reason is "code"). The trace is this
+     * thread's: begin made it so.
      */
     public void profile(Trace trace) {
-        if (!config.profileEnabled() || trace.recording != null) return;
-        trace.recording = profiler.start(Thread.currentThread());
+        start(trace, Profiler.CODE);
+    }
+
+    /**
+     * Profiles a trace whose request asked for it with an X-Tracepanel-Profile header: `asked` is what it asked for,
+     * "1" or "memory", or null for nothing. {@link #profile(Trace, String, String)} names why.
+     */
+    public void profile(Trace trace, String asked) {
+        profile(trace, asked, Profiler.HEADER_REASON);
     }
 
     /**
      * Profiles a trace whose request asked for it, with an X-Tracepanel-Profile header or the panel's
-     * tracepanel_profile cookie (Profiler.asked): `asked` is what it asked for, "1" or "memory", or null for nothing.
-     * Its calls to other apps over HTTP ask the same (HttpCalls.Call.profile), and so do the messages it sends
-     * (Messages.Publish.profile), so the whole chain is profiled; a trace only the TRACEPANEL_PROFILE setting profiles
-     * asks nothing of them.
+     * tracepanel_profile cookie (Profiler.asked): `asked` is what it asked for, "1" or "memory", or null for nothing;
+     * `reason` why, as Profiler.reason names it (header, cookie, parent). Its calls to other apps over HTTP ask the
+     * same (HttpCalls.Call.profile), and so do the messages it sends (Messages.Publish.profile), so the whole chain is
+     * profiled; a trace only the TRACEPANEL_PROFILE setting profiles asks nothing of them.
      */
-    public void profile(Trace trace, String asked) {
+    public void profile(Trace trace, String asked, String reason) {
         if (asked == null || !config.profileEnabled()) return;
-        profile(trace);
+        start(trace, reason);
         trace.asked = asked;
+    }
+
+    /**
+     * Profiles the trace from now on, and says why on its root span (profile.reason: setting, header, cookie, parent
+     * or code): what started its profile, when something already had, stays its reason.
+     */
+    private void start(Trace trace, String reason) {
+        if (!config.profileEnabled() || trace.recording != null) return;
+        trace.recording = profiler.start(Thread.currentThread());
+        trace.attr("profile.reason", reason);
     }
 
     /** The trace ended: it goes to the agent, and the thread works for the one it worked for before, if any. */

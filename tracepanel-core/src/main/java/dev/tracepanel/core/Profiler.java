@@ -23,6 +23,17 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class Profiler {
     public static final String HEADER = "X-Tracepanel-Profile";
     public static final String COOKIE = "tracepanel_profile";
+
+    /** Why a trace is profiled, its root span's profile.reason: TRACEPANEL_PROFILE profiles every trace. */
+    public static final String SETTING = "setting";
+    /** The request's X-Tracepanel-Profile header asked (curl, a test, a proxy). */
+    public static final String HEADER_REASON = "header";
+    /** The panel's Profile button: its tracepanel_profile cookie. */
+    public static final String COOKIE_REASON = "cookie";
+    /** The trace of another app, profiled, asked down its call or message: the whole chain is profiled. */
+    public static final String PARENT = "parent";
+    /** The app's own code called Tracepanel.profile. */
+    public static final String CODE = "code";
     /** What a request asks for: the profile ("1"), or the profile with its memory ("memory", the time here). */
     public static final String TIME = "1";
     public static final String MEMORY = "memory";
@@ -50,6 +61,16 @@ public final class Profiler {
     public static String asked(String header, String cookies) {
         String asked = asking(header);
         return asked != null ? asked : byCookie(cookies);
+    }
+
+    /**
+     * Why a request asks to be profiled, as its trace's profile.reason says: its X-Tracepanel-Profile header (the
+     * calling app's trace's, "parent", when `continued`: it came with that app's traceparent), else the panel's cookie;
+     * null when it asks nothing.
+     */
+    public static String reason(String header, String cookies, boolean continued) {
+        if (asking(header) != null) return continued ? PARENT : HEADER_REASON;
+        return byCookie(cookies) != null ? COOKIE_REASON : null;
     }
 
     /**

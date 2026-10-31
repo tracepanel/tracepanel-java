@@ -86,7 +86,9 @@ final class TracepanelFilter extends OncePerRequestFilter {
         HttpServletRequest handed = tracepanel.config().captureRequest() ? CapturedRequest.begin(request, attrs) : request;
         Trace trace = tracepanel.begin("http", method + " " + path, attrs);
         // Asked by a header or the panel's cookie: where this request's time goes in code.
-        tracepanel.profile(trace, Profiler.asked(request.getHeader(Profiler.HEADER), cookies(request)));
+        String profileHeader = request.getHeader(Profiler.HEADER);
+        String cookies = cookies(request);
+        tracepanel.profile(trace, Profiler.asked(profileHeader, cookies), Profiler.reason(profileHeader, cookies, caller.matches()));
         String origin = request.getScheme() + "://" + request.getHeader("Host");
         request.setAttribute(TRACE, trace);
         request.setAttribute(ORIGIN, origin);
