@@ -183,8 +183,11 @@ src/main/java/shop/Orders.java:42 place
 In a trace, the dump is also on the request's call tree, which always shows
 it. From Kotlin, `import dev.tracepanel.core.Tracepanel.dump` makes it
 `dump(order)`. A value under a secret's name, such as `password` or `token`,
-is masked. The expressions come from the source under the project's `src/`;
-without it, the values print alone.
+is masked. The expressions come from the call's source in a dev build: any
+module of the Gradle or Maven build the app runs in (its `settings.gradle`
+includes, its `pom.xml` modules, any directory with a `src`), or the module
+of the class's `build/classes` or `target/classes`, in every source set
+(`main`, `test`, `commonMain`...). Without it, the values print alone.
 
 ## In tests
 
