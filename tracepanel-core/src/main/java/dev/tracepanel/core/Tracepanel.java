@@ -132,6 +132,17 @@ public final class Tracepanel {
         if (trace != null) trace.user(id, username);
     }
 
+    /**
+     * Prints values to look at, as python-devtools' debug() prints them: the call's file, line and method, then each
+     * value as its expression in the call reads (when the source is in the project), its pretty text, its type and its
+     * length, on stderr. In a trace it is also a "dump" log record on the current span, which the console always
+     * shows; a value under a secret's name (password, token) is masked. From Kotlin, `import
+     * dev.tracepanel.core.Tracepanel.dump` makes it `dump(order, items)`.
+     */
+    public static void dump(Object... values) {
+        Dumps.dump(values, System.err);
+    }
+
     /** Where the current trace lives, for a coroutine context element that restores it on each resume. */
     public static ThreadLocal<Trace> holder() {
         return CURRENT;

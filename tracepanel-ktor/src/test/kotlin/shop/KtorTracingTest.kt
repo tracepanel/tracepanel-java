@@ -1,6 +1,7 @@
 package shop
 
 import dev.tracepanel.core.Jdbc
+import dev.tracepanel.core.Tracepanel.dump
 import dev.tracepanel.ktor.Tracepanel
 import dev.tracepanel.ktor.TracepanelClient
 import dev.tracepanel.ktor.tracepanelUser
@@ -98,6 +99,11 @@ private object CartSerializer : SessionSerializer<Cart> {
     override fun deserialize(text: String) = text.split('|').let { Cart(it[0], it[1]) }
 }
 
+/** What a handler dumps: a data class, which writes its own text, and a class without a toString. */
+data class Pick(val book: String, val copies: Int)
+
+class Note(val text: String, val urgent: Boolean)
+
 /** A Ktor app with the plugin: what the agent gets, and what the page and a caller see. */
 class KtorTracingTest {
     companion object {
@@ -178,6 +184,12 @@ class KtorTracingTest {
                 get("/cart") {
                     call.sessions.set(Cart("3 books", "s3cret"))
                     call.respondText("added")
+                }
+                get("/picks") {
+                    val pick = Pick("One", 2)
+                    val note = Note("wrap it", urgent = false)
+                    dump(pick, note, pick.copies * 3)
+                    call.respondText("picked")
                 }
                 get("/report") {
                     // On another thread, as a coroutine goes: the profile follows the call there.
@@ -508,5 +520,41 @@ class KtorTracingTest {
 
         assertEquals(HttpStatusCode.OK, answer.status)
         assertTrue(FakeAgent.CONSOLE_CALLS.any { it.contains("/api/traces?limit=1") }, FakeAgent.CONSOLE_CALLS.toString())
+    }
+
+    @Test
+    fun a_dump_in_kotlin_prints_and_is_a_debug_record_of_the_call_s_trace() = app {
+        assertEquals("picked", client.get("/picks").bodyAsText())
+        val trace = FakeAgent.traceAt("/picks")
+        val file = "src/test/kotlin/shop/KtorTracingTest.kt"
+        val line = java.io.File(file).readLines().indexOf("                    dump(pick, note, pick.copies * 3)") + 1
+        @Suppress("UNCHECKED_CAST")
+        val log = (trace["logs"] as List<Map<String, Any?>>).single()
+        val method = log["message"].toString().lineSequence().first().substringAfterLast(' ')
+
+        assertTrue(line > 0)
+        assertEquals(spans(trace, "view").single()["id"], log["span_id"])
+        assertEquals(
+            mapOf(
+                "level" to "debug",
+                "logger" to "tracepanel",
+                "message" to "$file:$line $method\n" +
+                    "    pick: Pick(book=One, copies=2) (Pick)\n" +
+                    "    note: Note(text=\"wrap it\", urgent=false) (Note)\n" +
+                    "    pick.copies * 3: 6 (Integer)",
+                "exception" to null,
+                "attrs" to mapOf(
+                    "log.kind" to "dump",
+                    "dump.lang" to "kotlin",
+                    "dump.args" to listOf(
+                        mapOf("expr" to "pick", "repr" to "Pick(book=One, copies=2)", "type" to "Pick", "len" to null),
+                        mapOf("expr" to "note", "repr" to "Note(text=\"wrap it\", urgent=false)", "type" to "Note", "len" to null),
+                        mapOf("expr" to "pick.copies * 3", "repr" to "6", "type" to "Integer", "len" to null),
+                    ),
+                    "code.origin" to "$file:$line in $method",
+                ),
+            ),
+            log - "span_id" - "time",
+        )
     }
 }
