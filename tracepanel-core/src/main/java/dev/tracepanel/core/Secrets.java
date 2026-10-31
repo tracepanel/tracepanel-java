@@ -2,7 +2,11 @@ package dev.tracepanel.core;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,7 +27,88 @@ public final class Secrets {
     private static final Pattern INSERT = Pattern.compile(
             "^\\s*INSERT\\s+INTO\\s+\\S+\\s*\\(([^)]*)\\)\\s*VALUES\\s*\\(([^)]*)\\)", Pattern.CASE_INSENSITIVE);
 
+    // A name read word by word, as the Python SDK reads it (tracepanel.core.masking.sensitive): split at _ - . [ ] and
+    // where camelCase turns, so `author` isn't `auth`, `tokenizer` isn't `token`, and x-api-key is (x, api, key).
+    private static final Pattern WORD_BREAKS =
+            Pattern.compile("[^a-zA-Z0-9]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])");
+    private static final Set<String> CARD_WORDS = Set.of("pan", "cvc", "cvv", "cvn", "cvc2", "cvv2", "cardnumber", "cardnum", "cardno");
+    private static final Set<String> WORDS = union(CARD_WORDS, Set.of(
+            "pass", "passwd", "password", "passwords", "passphrase", "passcode", "passkey", "secret", "secrets",
+            "secretkey", "token", "apikey", "apikeys", "auth", "oauth", "oauth2", "authorization", "authentication",
+            "cookie", "cookies", "session", "sessions", "csrf", "xsrf", "signature", "signatures", "private"));
+    /** Two words that make a secret together: card number, api key, refresh tokens... */
+    private static final Set<String> PAIRS = pairs();
+    /** The last word of a name about a secret, not the secret: password_length, token_type, cookie_name. */
+    private static final Set<String> ABOUT = Set.of(
+            "count", "total", "length", "len", "min", "max", "size", "age", "timeout", "ttl", "expiry", "expires",
+            "expiration", "at", "type", "name", "field", "label", "required", "enabled");
+    /** The first word of a yes or no: isPrivate, hasPassword. */
+    private static final Set<String> YES_OR_NO = Set.of("is", "has");
+    /** Words written together: accesstoken, csrftoken, clientsecret, newpassword, jsessionid. */
+    private static final List<String> ENDS = List.of("token", "secret", "password", "passwd", "apikey", "sessionid", "sessid");
+    /** ...and csrfmiddlewaretoken, sessionkey, cookiejar. */
+    private static final List<String> STARTS = List.of("password", "apikey", "csrf", "xsrf", "session", "cookie");
+
     private Secrets() {}
+
+    private static Set<String> union(Set<String> a, Set<String> b) {
+        Set<String> all = new HashSet<>(a);
+        all.addAll(b);
+        return Set.copyOf(all);
+    }
+
+    private static Set<String> pairs() {
+        Set<String> pairs = new HashSet<>(Set.of("card number", "card num", "card no", "api key", "api keys"));
+        for (String word : List.of("refresh", "access", "auth", "api", "bearer", "id", "session", "oauth", "csrf", "xsrf",
+                "jwt", "client")) {
+            pairs.add(word + " tokens");
+        }
+        return Set.copyOf(pairs);
+    }
+
+    /** A name's words, lowercase: X-CSRFToken is (x, csrf, token), cardNumber (card, number). */
+    static List<String> words(String name) {
+        List<String> words = new ArrayList<>();
+        for (String word : WORD_BREAKS.split(name)) if (!word.isEmpty()) words.add(word.toLowerCase(Locale.ROOT));
+        return words;
+    }
+
+    /**
+     * Whether a secret goes under the name, read word by word as the Python SDK reads it: password, apiKey,
+     * Authorization, csrftoken, sessionId, card[cvc]; not author, tokenizer, passwordLength nor hasPassword. A dump's
+     * expressions, fields and keys are named so.
+     */
+    public static boolean sensitive(String name) {
+        List<String> found = words(name);
+        if (found.equals(List.of("tokens"))) return true;
+        if (found.size() > 1 && (YES_OR_NO.contains(found.get(0)) || ABOUT.contains(found.get(found.size() - 1)))) {
+            return false;
+        }
+        for (int i = 0; i < found.size(); i++) {
+            String word = found.get(i);
+            if (WORDS.contains(word)) return true;
+            for (String end : ENDS) if (word.endsWith(end)) return true;
+            for (String start : STARTS) if (word.startsWith(start)) return true;
+            if (i > 0 && PAIRS.contains(found.get(i - 1) + " " + word)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether `tokens` holds a model's counts, not credentials: a number, or numbers only (a collection, a map's
+     * values, an array).
+     */
+    public static boolean counted(String name, Object value) {
+        if (!words(name).equals(List.of("tokens"))) return false;
+        Iterable<?> items;
+        if (value instanceof Map<?, ?> map) items = map.values();
+        else if (value instanceof Iterable<?> iterable) items = iterable;
+        else if (value instanceof int[] || value instanceof long[] || value instanceof double[] || value instanceof float[]
+                || value instanceof short[]) return true;
+        else items = List.of(value == null ? "" : value);
+        for (Object item : items) if (!(item instanceof Number)) return false;
+        return true;
+    }
 
     /** Whether a value under this name (a log's field, a query parameter) is a secret. */
     public static boolean secret(String name) {

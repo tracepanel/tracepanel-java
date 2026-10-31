@@ -97,7 +97,7 @@ final class Dumps {
             Object value = values[i];
             String expr = exprs == null ? null : exprs.get(i);
             String type = value == null ? "null" : typeName(value.getClass());
-            boolean secret = expr != null && Secrets.secret(expr);
+            boolean secret = expr != null && secretExpr(expr, value);
             String repr = secret ? Secrets.MASK : capped(repr(value));
             Integer len = secret ? null : length(value);
             Map<String, Object> arg = new LinkedHashMap<>();
@@ -613,7 +613,9 @@ final class Dumps {
                 if (items.size() == MAX_ITEMS) break;
                 StringBuilder key = new StringBuilder();
                 write(node(entry.getKey(), depth, path), 0, key);
-                items.add(node(entry.getValue(), depth, path).labeled(key.toString().replace("\n", " ") + "="));
+                Object rawKey = entry.getKey();
+                String keyName = rawKey instanceof CharSequence || rawKey instanceof Enum<?> ? rawKey.toString() : null;
+                items.add(named(entry.getValue(), keyName, depth, path).labeled(key.toString().replace("\n", " ") + "="));
             }
             more(items, map.size());
             return Node.group("{", items, "}");
@@ -629,7 +631,7 @@ final class Dumps {
                 } catch (ReflectiveOperationException | RuntimeException e) {
                     return Node.leaf(text(value));
                 }
-                items.add(node(field, depth, path).labeled(component.getName() + "="));
+                items.add(named(field, component.getName(), depth, path).labeled(component.getName() + "="));
             }
             return Node.group(name + "[", items, "]");
         }
@@ -653,9 +655,188 @@ final class Dumps {
             } catch (ReflectiveOperationException | RuntimeException e) {
                 return Node.leaf(text(value));
             }
-            items.add(node(fieldValue, depth, path).labeled(field.getName() + "="));
+            items.add(named(fieldValue, field.getName(), depth, path).labeled(field.getName() + "="));
         }
         return Node.group(name + "(", items, ")");
+    }
+
+    /** A field's, a component's or an entry's value: masked under a secret's name (a token, apiKey, password). */
+    private static Node named(Object value, String name, int depth, IdentityHashMap<Object, Boolean> path) {
+        if (name != null && secret(name, value)) return Node.leaf(Secrets.MASK);
+        return node(value, depth, path);
+    }
+
+    /** Whether a value under this name is a secret's: not a model's counts under `tokens` (Secrets.counted). */
+    static boolean secret(String name, Object value) {
+        return Secrets.sensitive(name) && !Secrets.counted(name, value);
+    }
+
+    /**
+     * Whether an argument's expression names a secret, by its last name: `user.password`, `getApiKey()`,
+     * `headers["Authorization"]`, `env.get("API_TOKEN")`; not `tokens.size()` nor `tokenCount` (a number about the
+     * secret), whose last name says otherwise. A string's template is read for the names it puts in: "Bearer $token".
+     */
+    static boolean secretExpr(String expr, Object value) {
+        String text = expr.strip();
+        if (!text.isEmpty() && (text.charAt(0) == '"' || text.charAt(0) == '\'')) {
+            Matcher template = TEMPLATE.matcher(text);
+            while (template.find()) {
+                String name = lastName(template.group(1) != null ? template.group(1) : template.group(2));
+                if (name != null && Secrets.sensitive(name)) return true;
+            }
+            return false;
+        }
+        String name = lastName(text);
+        return name != null && secret(name, value);
+    }
+
+    /** A Kotlin template's names: $token, ${user.password}. */
+    private static final Pattern TEMPLATE = Pattern.compile("\\$(?:\\{([^}]*)}|([A-Za-z_][\\w.]*))");
+    /** A lookup by a key written as a string: its key is the name (map.get("token"), getenv("API_KEY")). */
+    private static final Pattern KEYED = Pattern.compile(
+            "(?:get|getOrDefault|getOrElse|getOrNull|getProperty|getenv|getHeader|getParameter|getString|optString|opt|"
+                    + "getValue|getAttribute|getFirst|header|property|remove)");
+
+    /** Calls whose value is the receiver's, or one of its elements: the receiver's name is the one that tells. */
+    private static final Set<String> SAME = Set.of(
+            "get", "getOrNull", "getOrElse", "getOrDefault", "getValue", "first", "last", "firstOrNull", "lastOrNull",
+            "single", "elementAt", "orElse", "orElseThrow", "orElseGet", "join", "await", "block", "peek", "poll",
+            "toString", "trim", "strip", "lowercase", "uppercase", "toLowerCase", "toUpperCase", "orEmpty", "toCharArray",
+            "getBytes", "encodeToByteArray", "toByteArray", "clone", "copy");
+
+    /** The last name an expression reads: past calls' parentheses, ?. and !!; a key written as a string. */
+    static String lastName(String expr) {
+        String text = expr.strip();
+        while (true) {
+            while (text.endsWith("!!") || text.endsWith("?")) text = text.substring(0, text.length() - (text.endsWith("!!") ? 2 : 1)).strip();
+            if (text.isEmpty()) return null;
+            char last = text.charAt(text.length() - 1);
+            if (last == ')' || last == ']') {
+                int open = opening(text, text.length() - 1);
+                if (open < 0) return null;
+                String inside = text.substring(open + 1, text.length() - 1).strip();
+                String before = text.substring(0, open).strip();
+                String key = stringKey(inside);
+                if (last == ']') {
+                    if (key != null) return key;
+                    text = before;
+                    continue;
+                }
+                String call = trailingName(before);
+                if (call != null && key != null && KEYED.matcher(call).matches()) return key;
+                if (call != null && SAME.contains(call) && before.length() > call.length()) {
+                    // The receiver's own value, or one of its elements: tokens.get(0), password.trim(), secret.get().
+                    String receiver = before.substring(0, before.length() - call.length()).strip();
+                    if (receiver.endsWith(".")) {
+                        text = receiver.substring(0, receiver.length() - 1);
+                        continue;
+                    }
+                }
+                if (call != null) return call;
+                // A parenthesized expression, a cast: its own last name.
+                text = inside;
+                continue;
+            }
+            return trailingName(text);
+        }
+    }
+
+    /** The string a call's first argument (or an index) is written as: "token" in get("token"), else null. */
+    private static String stringKey(String inside) {
+        if (inside.length() < 2 || inside.charAt(0) != '"') return null;
+        int end = inside.indexOf('"', 1);
+        if (end < 0) return null;
+        String rest = inside.substring(end + 1).strip();
+        return rest.isEmpty() || rest.startsWith(",") ? inside.substring(1, end) : null;
+    }
+
+    /** The identifier the text ends in, or null. */
+    private static String trailingName(String text) {
+        int end = text.length();
+        int start = end;
+        while (start > 0 && Character.isJavaIdentifierPart(text.charAt(start - 1))) start--;
+        if (start == end || !Character.isJavaIdentifierStart(text.charAt(start))) return null;
+        return text.substring(start, end);
+    }
+
+    /** Where the bracket that `close` closes opens, past strings; -1 when it doesn't. */
+    private static int opening(String text, int close) {
+        int depth = 0;
+        char quote = 0;
+        for (int i = close; i >= 0; i--) {
+            char c = text.charAt(i);
+            if (quote != 0) {
+                if (c == quote && (i == 0 || text.charAt(i - 1) != '\\')) quote = 0;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == ')' || c == ']' || c == '}') {
+                depth++;
+            } else if (c == '(' || c == '[' || c == '{') {
+                if (--depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    /** A `name=value` pair in a text a class writes itself (a Kotlin data class, a toString): the name, then its value. */
+    private static final Pattern PAIR = Pattern.compile("(?<![\\w.$])([A-Za-z_][\\w-]*)\\s*=\\s*");
+
+    /**
+     * A class's own text with the values of its secret-named pairs masked: Cart(items=3, token=abc) is
+     * Cart(items=3, token=********). A value runs to the next `, name=` or the bracket that closes its pair's.
+     */
+    static String maskPairs(String text) {
+        if (text.indexOf('=') < 0) return text;
+        StringBuilder out = null;
+        int copied = 0;
+        Matcher pair = PAIR.matcher(text);
+        int from = 0;
+        while (from < text.length() && pair.find(from)) {
+            int end = valueEnd(text, pair.end());
+            String value = text.substring(pair.end(), end);
+            if (!value.equals(Secrets.MASK) && secret(pair.group(1), number(value))) {
+                if (out == null) out = new StringBuilder(text.length());
+                out.append(text, copied, pair.end()).append(Secrets.MASK);
+                copied = end;
+                from = end;
+            } else {
+                from = pair.end();
+            }
+        }
+        if (out == null) return text;
+        return out.append(text, copied, text.length()).toString();
+    }
+
+    /** Where a pair's value ends: before `, name=` at its own depth, or the bracket closing its pair's group. */
+    private static int valueEnd(String text, int start) {
+        int depth = 0;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '(' || c == '[' || c == '{') {
+                depth++;
+            } else if (c == ')' || c == ']' || c == '}') {
+                if (depth == 0) return i;
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                Matcher next = PAIR.matcher(text);
+                int at = i + 1;
+                while (at < text.length() && text.charAt(at) == ' ') at++;
+                next.region(at, text.length());
+                if (next.lookingAt()) return i;
+            }
+        }
+        return text.length();
+    }
+
+    /** A pair's value as a number when it is one: `tokens=1024` is a model's count. */
+    private static Object number(String value) {
+        try {
+            return Double.parseDouble(value.strip());
+        } catch (NumberFormatException e) {
+            return value;
+        }
     }
 
     private static void more(List<Node> items, int size) {
@@ -695,9 +876,11 @@ final class Dumps {
         return false;
     }
 
+    /** A value's own text, its secret-named pairs masked (maskPairs). */
     private static String text(Object value) {
         try {
-            return String.valueOf(value);
+            if (value instanceof Number || value instanceof Boolean || value instanceof Enum<?>) return String.valueOf(value);
+            return maskPairs(String.valueOf(value));
         } catch (RuntimeException | LinkageError e) {
             return "<toString failed: " + e.getClass().getSimpleName() + ">";
         }

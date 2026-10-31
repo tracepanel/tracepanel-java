@@ -213,6 +213,87 @@ class DumpsTest {
         assertEquals(false, printed().contains("hunter2"));
     }
 
+    private record Login(String user, String password, Map<String, Object> headers, int tokens) {}
+
+    /** An app's class without a toString: its fields. */
+    static class Client {
+        final String name = "shop";
+        final String apiKey = "sk_live_1";
+        final String author = "ann";
+    }
+
+    /** A class that writes its own text, as a Kotlin data class does. */
+    static class Creds {
+        @Override
+        public String toString() {
+            return "Creds(user=ann, apiKey=sk_1, scopes=[read, write], session=Session(id=7, user=ann), tokenCount=3)";
+        }
+    }
+
+    @Test
+    void a_secret_named_field_component_or_key_inside_a_value_is_masked_in_the_record_and_the_print() {
+        Trace trace = Traces.request("POST /login");
+        Tracepanel.bind(trace);
+        Map<String, Object> headers = new LinkedHashMap<>();
+        headers.put("auth", "Bearer abc");
+        Login login = new Login("ann", "hunter2", headers, 1024);
+        Client client = new Client();
+        Creds creds = new Creds();
+
+        Tracepanel.dump(login, client, creds);
+
+        Object args = dumpArgs(logs(trace).get(0));
+        String loginText = "Login[user=\"ann\", password=" + Secrets.MASK
+                + ", headers={\"auth\"=" + Secrets.MASK + "}, tokens=1024]";
+        String clientText = "Client(name=\"shop\", apiKey=" + Secrets.MASK + ", author=\"ann\")";
+        String credsText = "Creds(user=ann, apiKey=" + Secrets.MASK + ", scopes=[read, write], session=" + Secrets.MASK
+                + ", tokenCount=3)";
+
+        assertEquals(List.of(
+                arg("login", loginText, "Login", null),
+                arg("client", clientText, "Client", null),
+                arg("creds", credsText, "Creds", null)), args);
+        // The print is the record's text, masked the same.
+        assertEquals(true, printed().contains("\n    login: " + loginText.substring(0, 40)), printed());
+        assertEquals(true, printed().contains("\n    creds: " + credsText + " (Creds)\n"), printed());
+        assertEquals(false, printed().contains("hunter2") || printed().contains("sk_") || printed().contains("Bearer"));
+    }
+
+    @Test
+    void an_expression_is_a_secret_s_by_its_last_name_not_by_any_part_of_its_text() {
+        assertEquals(true, Dumps.secretExpr("password", "x"));
+        assertEquals(true, Dumps.secretExpr("user.password", "x"));
+        assertEquals(true, Dumps.secretExpr("user?.getApiKey()!!", "x"));
+        assertEquals(true, Dumps.secretExpr("request.headers[\"Authorization\"]", "x"));
+        assertEquals(true, Dumps.secretExpr("System.getenv(\"STRIPE_SECRET\")", "x"));
+        assertEquals(true, Dumps.secretExpr("tokens.get(0)", "x"));
+        assertEquals(true, Dumps.secretExpr("password.trim().toCharArray()", "x"));
+        assertEquals(true, Dumps.secretExpr("\"Bearer ${session.token}\"", "x"));
+        assertEquals(true, Dumps.secretExpr("(String) creds.secret", "x"));
+
+        assertEquals(false, Dumps.secretExpr("tokens.size()", 3));
+        assertEquals(false, Dumps.secretExpr("passwords.isEmpty()", false));
+        assertEquals(false, Dumps.secretExpr("tokenCount", 3));
+        assertEquals(false, Dumps.secretExpr("hasPassword", true));
+        assertEquals(false, Dumps.secretExpr("passwordLength", 8));
+        assertEquals(false, Dumps.secretExpr("book.author", "ann"));
+        assertEquals(false, Dumps.secretExpr("tokenizer.next()", "x"));
+        assertEquals(false, Dumps.secretExpr("headers.get(\"Accept\")", "x"));
+        assertEquals(false, Dumps.secretExpr("\"user ${user.name}\"", "x"));
+        // A model's counts under `tokens`: a number, not a credential.
+        assertEquals(false, Dumps.secretExpr("usage.tokens", 1024));
+        assertEquals(true, Dumps.secretExpr("usage.tokens", "abc"));
+    }
+
+    @Test
+    void a_class_s_own_text_has_the_values_of_its_secret_pairs_masked() {
+        assertEquals("Cart(items=3 books, secret=" + Secrets.MASK + ")", Dumps.maskPairs("Cart(items=3 books, secret=s3 cret)"));
+        assertEquals("A(token=" + Secrets.MASK + ", b=B(password=" + Secrets.MASK + "), c=1)",
+                Dumps.maskPairs("A(token=x, y, b=B(password=p=q), c=1)"));
+        assertEquals("Usage(tokens=1024, author=ann)", Dumps.maskPairs("Usage(tokens=1024, author=ann)"));
+        assertEquals("no pairs here", Dumps.maskPairs("no pairs here"));
+    }
+
     @Test
     void outside_a_trace_a_dump_prints_and_records_nothing() {
         Trace trace = Traces.request("GET /");
