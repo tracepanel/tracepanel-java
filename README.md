@@ -176,7 +176,7 @@ Tracepanel.dump(order, order.lines(), "here");
 ```
 src/main/java/shop/Orders.java:42 place
     order: Order[id=7, total=12.50, lines=[Line[sku="pen", quantity=2]]] (Order)
-    order.lines(): [Line[sku="pen", quantity=2]] (ListN) len=1
+    order.lines(): [Line[sku="pen", quantity=2]] (List) len=1
     "here" (String) len=4
 ```
 

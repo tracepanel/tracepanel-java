@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -129,11 +130,47 @@ final class Dumps {
         return text.length() <= MAX_REPR ? text : text.substring(0, MAX_REPR) + CUT;
     }
 
+    /**
+     * A value's type as the developer knows it: the class's simple name, but for a JDK class that isn't public
+     * (List.of's ListN, Collections' wrappers, Arrays.asList's), a Kotlin library's internal one (emptyList's
+     * EmptyList), an anonymous class or a lambda, the public type it is: List, Set, Map, Map.Entry or Collection,
+     * else its public superclass or interface, else "lambda".
+     */
     static String typeName(Class<?> type) {
+        if (type.isArray()) return typeName(type.getComponentType()) + "[]";
+        boolean lambda = type.isHidden() || type.isSynthetic() || type.getName().contains("$$Lambda");
+        boolean hidden = lambda || type.isAnonymousClass() || jdk(type) && !visible(type) || kotlinInternal(type);
+        if (!hidden) return simpleName(type);
+        for (Class<?> known : KNOWN) if (known.isAssignableFrom(type)) return known == Map.Entry.class ? "Map.Entry" : known.getSimpleName();
+        for (Class<?> at = type.getSuperclass(); at != null && at != Object.class; at = at.getSuperclass()) {
+            if (visible(at) && !kotlinInternal(at) && !at.getName().startsWith("kotlin.jvm.internal.")) return simpleName(at);
+        }
+        for (Class<?> face : type.getInterfaces()) if (visible(face)) return simpleName(face);
+        return lambda ? "lambda" : simpleName(type);
+    }
+
+    /** The public types a hidden class is named by, the most specific first. */
+    private static final List<Class<?>> KNOWN = List.of(List.class, Set.class, Map.class, Map.Entry.class, Collection.class);
+
+    private static String simpleName(Class<?> type) {
         String simple = type.getSimpleName();
         if (!simple.isEmpty()) return simple;
         String name = type.getName();
         return name.substring(name.lastIndexOf('.') + 1);
+    }
+
+    /** Whether the class, and each class it is declared in, is public. */
+    private static boolean visible(Class<?> type) {
+        for (Class<?> at = type; at != null; at = at.getDeclaringClass()) {
+            if (!Modifier.isPublic(at.getModifiers())) return false;
+        }
+        return !type.isAnonymousClass() && !type.isHidden();
+    }
+
+    /** Kotlin's collections' own classes, internal to its library but public in its bytecode: EmptyList, ListBuilder. */
+    private static boolean kotlinInternal(Class<?> type) {
+        String name = type.getName();
+        return name.startsWith("kotlin.collections.") && !name.equals("kotlin.collections.ArrayDeque");
     }
 
     /** The length of a value that has one: a collection, a map, an array, a string. */
@@ -198,13 +235,37 @@ final class Dumps {
 
     /** Each argument's expression, null for a literal; null for all when the call can't be read. */
     static List<String> exprs(List<String> lines, int line, int count) {
+        return exprs(lines, line, 0, count);
+    }
+
+    /**
+     * As {@link #exprs(List, int, int)}, for the call at a 1-based column of the line when the frame knows it (0 when
+     * not, as a JVM frame never does): of several calls on the line, the one whose text covers it, else the first.
+     */
+    static List<String> exprs(List<String> lines, int line, int column, int count) {
         if (line <= 0 || line > lines.size()) return null;
         for (int at = line; at >= Math.max(1, line - 5); at--) {
             Matcher call = CALL.matcher(lines.get(at - 1));
             if (!call.find()) continue;
             StringBuilder text = new StringBuilder();
             for (int i = at - 1; i < Math.min(lines.size(), at - 1 + MAX_CALL_LINES); i++) text.append(lines.get(i)).append('\n');
-            List<String> args = arguments(text.toString(), call.end());
+            int[] end = new int[1];
+            List<String> args = arguments(text.toString(), call.end(), end);
+            if (at == line && column > 0 && args != null && !covers(lines.get(at - 1), call.start(), end[0], column)) {
+                // The text starts with the call's line: a later call on it, from past the first one's ).
+                String lineText = lines.get(at - 1);
+                Matcher other = CALL.matcher(lineText);
+                int from = end[0];
+                while (from < lineText.length() && other.find(from)) {
+                    List<String> found = arguments(text.toString(), other.end(), end);
+                    if (found == null) break;
+                    if (covers(lineText, other.start(), end[0], column)) {
+                        args = found;
+                        break;
+                    }
+                    from = end[0];
+                }
+            }
             if (args == null) return null;
             if (args.size() == 1 && args.get(0).isBlank()) args = List.of();
             if (args.size() != count) return null;
@@ -223,12 +284,25 @@ final class Dumps {
      * when it doesn't close.
      */
     static List<String> arguments(String text, int from) {
+        return arguments(text, from, new int[1]);
+    }
+
+    /** As {@link #arguments(String, int)}, with the index past the call's ) put in closed[0]. */
+    private static List<String> arguments(String text, int from, int[] closed) {
         List<String> args = new ArrayList<>();
         StringBuilder arg = new StringBuilder();
         int depth = 0;
         int i = from;
         while (i < text.length()) {
             char c = text.charAt(i);
+            if (c == '<') {
+                int close = typeArguments(text, i);
+                if (close > 0) {
+                    arg.append(text, i, close);
+                    i = close;
+                    continue;
+                }
+            }
             if (c == '"' || c == '\'') {
                 int end = skipQuoted(text, i);
                 if (end < 0) return null;
@@ -255,6 +329,7 @@ final class Dumps {
                 if (depth == 0) {
                     if (c != ')') return null;
                     args.add(arg.toString());
+                    closed[0] = i + 1;
                     return args;
                 }
                 depth--;
@@ -268,6 +343,72 @@ final class Dumps {
             i++;
         }
         return null;
+    }
+
+    /** Whether a call that starts at `start` (with its receiver, as `Tracepanel.`) and ends before `end` covers a 1-based column. */
+    private static boolean covers(String line, int start, int end, int column) {
+        while (start > 0 && (Character.isJavaIdentifierPart(line.charAt(start - 1)) || line.charAt(start - 1) == '.')) start--;
+        return column - 1 >= start && column - 1 < end;
+    }
+
+    /**
+     * Past the type arguments whose < is at `at`, as `mapOf<String, Int>` or `List.<String>of` have: -1 when the < is a
+     * comparison. It is a type argument list when it follows a name or a dot, closes before anything a type can't
+     * hold (an operator other than ->, a literal, a string), and its > is followed by what follows a type: a (, a dot,
+     * a :: , a ), a comma; with a space between, not a name or a value, so `a < b, c > d` stays two comparisons.
+     */
+    static int typeArguments(String text, int at) {
+        if (at == 0) return -1;
+        char before = text.charAt(at - 1);
+        boolean afterDot = before == '.';
+        if (!afterDot) {
+            int start = at;
+            while (start > 0 && Character.isJavaIdentifierPart(text.charAt(start - 1))) start--;
+            if (start == at || !Character.isJavaIdentifierStart(text.charAt(start))) return -1;
+        }
+        int depth = 0;
+        int parens = 0;
+        int i = at;
+        while (i < text.length()) {
+            char c = text.charAt(i);
+            if (c == '<') {
+                depth++;
+            } else if (c == '>') {
+                depth--;
+                if (depth == 0) {
+                    i++;
+                    break;
+                }
+            } else if (c == '-' && i + 1 < text.length() && text.charAt(i + 1) == '>') {
+                i++;
+            } else if (c == '(') {
+                parens++;
+            } else if (c == ')') {
+                if (--parens < 0) return -1;
+            } else if (Character.isJavaIdentifierStart(c)) {
+                while (i + 1 < text.length() && Character.isJavaIdentifierPart(text.charAt(i + 1))) i++;
+            } else if (!(Character.isWhitespace(c) || c == '.' || c == ',' || c == '?' || c == '*' || c == '['
+                    || c == ']' || c == '@')) {
+                // A digit that starts a value, an operator, a string, a ; : none is in a type.
+                return -1;
+            }
+            i++;
+        }
+        if (depth != 0 || parens != 0) return -1;
+        if (i >= text.length()) return i;
+        char next = text.charAt(i);
+        if (next == '(' || next == '.' || next == ':' || next == ')' || next == ',' || next == '[' || next == '?'
+                || next == '{') {
+            return i;
+        }
+        if (afterDot && Character.isJavaIdentifierStart(next)) return i;
+        if (!Character.isWhitespace(next)) return -1;
+        int after = i;
+        while (after < text.length() && Character.isWhitespace(text.charAt(after))) after++;
+        if (after >= text.length()) return i;
+        char following = text.charAt(after);
+        return following == ')' || following == ',' || following == '{' || following == '&' || following == '|'
+                || following == '?' || following == ':' || following == '=' || following == ';' ? i : -1;
     }
 
     /**
