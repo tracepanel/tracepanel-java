@@ -81,6 +81,12 @@ private fun gzip(text: String): ByteArray = ByteArrayOutputStream().also { bytes
     GZIPOutputStream(bytes).use { it.write(text.toByteArray()) }
 }.toByteArray()
 
+/** Allocates `megabytes`, kept until it returns: where a memory profile sees the memory go. */
+fun allocate(megabytes: Int): Int {
+    val kept = Array(megabytes) { ByteArray(1024 * 1024) }
+    return kept.size
+}
+
 /** Busy for about `millis`: where a profile sees the time go. */
 fun crunch(millis: Long): Long {
     val until = System.nanoTime() + millis * 1_000_000
@@ -205,6 +211,15 @@ class KtorTracingTest {
                     // On another thread, as a coroutine goes: the profile follows the call there.
                     val total = withContext(Dispatchers.Default) { crunch(60) }
                     call.respondText("report $total")
+                }
+                get("/report/memory") {
+                    // 8 MB on another thread, 8 MB on the call's own: both the trace's.
+                    val there = withContext(Dispatchers.Default) { allocate(8) }
+                    call.respondText("report ${there + allocate(8)}")
+                }
+                get("/report/memory/code") {
+                    val profiled = profile(true)
+                    call.respondText("$profiled ${allocate(8)}")
                 }
             }
         }
@@ -555,6 +570,33 @@ class KtorTracingTest {
         assertTrue((profile["samples"] as Int) > 5, profile.toString())
         assertEquals(mapOf("module" to "shop.KtorTracingTestKt", "file" to "shop/KtorTracingTest.kt", "in_app" to true),
             crunch.filterKeys { it in setOf("module", "file", "in_app") })
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun memory(path: String) = (FakeAgent.traceAt(path)["profile"] as Map<String, Any>)["memory"] as Map<String, Any>?
+
+    @Test
+    fun a_call_that_asks_for_its_memory_has_what_its_coroutines_allocated_on_every_thread() = app {
+        client.get("/report/memory") { header("X-Tracepanel-Profile", "memory") }
+        val memory = memory("/report/memory")!!
+        val allocated = (memory["allocated"] as Number).toLong()
+
+        assertEquals(setOf("peak", "net", "allocated", "shared"), memory.keys)
+        // 8 MB on Dispatchers.Default and 8 MB on the call's thread, and what Ktor allocated around them.
+        assertTrue(allocated in (16L shl 20)..(64L shl 20), memory.toString())
+        assertTrue((memory["peak"] as Number).toLong() >= 0, memory.toString())
+    }
+
+    @Test
+    fun the_handler_s_code_asks_for_its_memory_and_only_a_call_that_asks_has_it() = app {
+        assertEquals("true 8", client.get("/report/memory/code").bodyAsText())
+        client.get("/report") { header("X-Tracepanel-Profile", "1") }
+        val memory = memory("/report/memory/code")!!
+
+        assertEquals("code", attrs(FakeAgent.traceAt("/report/memory/code"))["profile.reason"])
+        assertTrue((memory["allocated"] as Number).toLong() >= 8L shl 20, memory.toString())
+
+        assertEquals(null, memory("/report"))
     }
 
     @Test

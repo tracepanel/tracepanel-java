@@ -209,7 +209,8 @@ whether the trace is profiled: outside a trace, with Tracepanel off or with
 `TRACEPANEL_PROFILE_ENABLED=0` it does nothing and returns `false`. A trace
 something already profiles keeps its `profile.reason`; one profiled here
 says `code`. From Kotlin, `import dev.tracepanel.core.Tracepanel.profile`
-makes it `profile()`.
+makes it `profile()`. `Tracepanel.profile(true)` measures the trace's
+memory too ([Memory](#memory)), and its calls ask for theirs.
 
 ## In tests
 
@@ -313,6 +314,31 @@ its root span's `profile.reason`:
 `setting`, `header`, `cookie`, `parent` (the calling app's trace asked) or
 `code`.
 
+### Memory
+
+The panel's Profile button set to memory, or an `X-Tracepanel-Profile:
+memory` header, measures a request's memory too: the console's Memory view.
+`TRACEPANEL_PROFILE_MEMORY=1` measures every profiled trace's.
+
+- `allocated`: what the threads that ran the trace allocated while they ran
+  it, garbage or not, counted by the JVM for each thread. It is the
+  trace's own, on every thread Tracepanel follows it to: an async
+  request's, a coroutine's. Work handed to another pool isn't in it. A
+  virtual thread the JVM can't count leaves it out.
+- `peak`: the heap's highest level while the trace ran, above where it
+  started: read every 10 ms, before each collection and at the end.
+- `net`: the heap's level at the end less at the start. Garbage counts
+  until it is collected, so a collection meanwhile can make it negative.
+
+The heap is the process's: when other traces ran meanwhile, `peak` and
+`net` hold theirs too, and the console says so. Allocation sites aren't
+recorded: the JVM's only cheap source, JFR's allocation samples, takes a
+handful of samples per request, tells where memory was allocated rather
+than held, and arrives a second late.
+
+Every profile has the garbage collector's runs: how many, their pauses in
+all, and each pause on the trace's clock, to the millisecond.
+
 The SDK downloads its agent the first time, checks its checksum and keeps it
 in `~/.cache/tracepanel/`. It comes from Maven Central, or from the mirror in
 `~/.m2/settings.xml`, through `HTTPS_PROXY` or the JVM's proxy. Without a
@@ -342,6 +368,7 @@ The same environment variables as the other Tracepanel SDKs:
 | `TRACEPANEL_CONSOLE_REMOTE` | off | `1` lets other machines open the console |
 | `TRACEPANEL_CAPTURE_REQUEST` | on | `0` leaves a request's headers, query, cookies, body and session out |
 | `TRACEPANEL_PROFILE` | off | `1` profiles every trace, not only a request that asks |
+| `TRACEPANEL_PROFILE_MEMORY` | off | `1` measures every profiled trace's memory, not only a request's that asks |
 | `TRACEPANEL_PROFILE_ENABLED` | on | `0` turns profiling off, the Profile button with it |
 | `TRACEPANEL_PROFILE_INTERVAL_MS` | `1` | how often a profiled trace's stack is sampled |
 | `TRACEPANEL_N_PLUS_ONE_THRESHOLD` | `3` | repeats that make an N+1 |

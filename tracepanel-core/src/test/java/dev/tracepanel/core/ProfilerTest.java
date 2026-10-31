@@ -61,7 +61,7 @@ class ProfilerTest {
         try {
             Trace trace = tracepanel.begin("http", "GET /", Map.of());
             before.accept(tracepanel, trace);
-            boolean profiled = tracepanel.profiledByCode(Tracepanel.current());
+            boolean profiled = tracepanel.profiledByCode(Tracepanel.current(), false);
             Messages.Publish publish = Messages.publish("kafka");
             publish.handedOver();
             String call = HttpCalls.start(trace, "GET", URI.create("http://127.0.0.1:1/")).profile();
@@ -92,7 +92,7 @@ class ProfilerTest {
         Map<String, String> settings = Map.of("TRACEPANEL_AGENT", "off");
         Tracepanel tracepanel = new Tracepanel(Config.load(settings, "shop"), List.of(), settings);
 
-        assertEquals(false, tracepanel.profiledByCode(null));
+        assertEquals(false, tracepanel.profiledByCode(null, false));
         assertEquals(false, Tracepanel.profile());
 
         // No Tracepanel started in this process: it is off, and a trace bound here stays as it was.
@@ -137,7 +137,7 @@ class ProfilerTest {
         // The header wins over the cookie.
         assertEquals("1", Profiler.asked("1", "tracepanel_profile=memory"));
         assertEquals("memory", Profiler.asked("0", "tracepanel_profile=memory"));
-        // "memory" profiles the time here: this SDK has no memory profile.
+        // "memory" profiles the time, and measures the memory too.
         assertTrue(Profiler.requested("memory", null));
 
         assertNull(Profiler.asked("0", null));

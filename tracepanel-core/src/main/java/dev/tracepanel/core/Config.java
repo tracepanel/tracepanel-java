@@ -24,6 +24,8 @@ import java.util.function.Function;
  *     session in its trace, masked; on by default (they never leave this machine)
  * @param profile TRACEPANEL_PROFILE: every trace profiled; off by default, when a request still may ask (an
  *     X-Tracepanel-Profile: 1 header, or the tracepanel_profile=1 cookie the panel's Profile button sets)
+ * @param profileMemory TRACEPANEL_PROFILE_MEMORY: every profiled trace's memory measured too, not only a request's
+ *     that asks for it (X-Tracepanel-Profile: memory, the tracepanel_profile=memory cookie); off by default
  * @param profileEnabled TRACEPANEL_PROFILE_ENABLED: whether profiling is possible at all; off, nothing profiles
  * @param profileIntervalMs TRACEPANEL_PROFILE_INTERVAL_MS: how often a profiled trace's stack is sampled
  */
@@ -38,6 +40,7 @@ public record Config(
         boolean consoleRemote,
         boolean captureRequest,
         boolean profile,
+        boolean profileMemory,
         boolean profileEnabled,
         int profileIntervalMs) {
 
@@ -85,6 +88,7 @@ public record Config(
                 on(env.apply("TRACEPANEL_CONSOLE_REMOTE")),
                 enabled(env.apply("TRACEPANEL_CAPTURE_REQUEST")),
                 on(env.apply("TRACEPANEL_PROFILE")),
+                on(env.apply("TRACEPANEL_PROFILE_MEMORY")),
                 enabled(env.apply("TRACEPANEL_PROFILE_ENABLED")),
                 // Each millisecond, as in the Python SDK: a request of a few milliseconds still has a profile to read.
                 Math.max(integer(env.apply("TRACEPANEL_PROFILE_INTERVAL_MS"), 1), 1));

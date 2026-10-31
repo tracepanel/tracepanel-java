@@ -137,11 +137,36 @@ class RequestTracingTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void a_request_that_asks_for_its_memory_has_what_it_allocated_and_the_collector_s_runs() throws Exception {
+        send("GET", "/report/memory", null, null, "X-Tracepanel-Profile", "memory", "X-Test", "memory");
+        send("GET", "/report/memory/later", null, null, "Cookie", "tracepanel_profile=memory");
+        send("GET", "/report", null, null, "X-Tracepanel-Profile", "1", "X-Test", "time only");
+        Map<String, Object> profile = (Map<String, Object>) traceNamed("memory").get("profile");
+        Map<String, Object> memory = (Map<String, Object>) profile.get("memory");
+        Map<String, Object> later = (Map<String, Object>) ((Map<String, Object>) FakeAgent.traceAt("/report/memory/later")
+                .get("profile")).get("memory");
+        Map<String, Object> timeOnly = (Map<String, Object>) traceNamed("time only").get("profile");
+
+        assertThat(memory).containsOnlyKeys("peak", "net", "allocated", "shared");
+        // The 8 MB the handler kept, and what Spring allocated for the request around it.
+        assertThat(((Number) memory.get("allocated")).longValue()).isBetween(8L << 20, 64L << 20);
+        assertThat(((Number) memory.get("peak")).longValue()).isNotNegative();
+        assertThat((Map<String, Object>) profile.get("gc")).containsOnlyKeys("collections", "pause_us", "pauses");
+
+        // Answered on another thread: what it allocated there is the trace's too.
+        assertThat(((Number) later.get("allocated")).longValue()).isBetween(8L << 20, 64L << 20);
+
+        // The time asked for alone: no memory, the collector's runs still.
+        assertThat(timeOnly).doesNotContainKey("memory").containsKey("gc");
+    }
+
+    @Test
     void a_request_that_doesn_t_ask_is_not_profiled_and_the_hello_says_what_the_app_records() throws Exception {
         send("GET", "/report", null, null, "X-Test", "unprofiled");
 
         assertThat(traceNamed("unprofiled")).doesNotContainKey("profile");
 
-        assertThat(FakeAgent.HELLOS).anySatisfy(hello -> assertThat(hello).contains("\"capabilities\":[\"explain\",\"profile\",\"request\",\"live_tasks\"]"));
+        assertThat(FakeAgent.HELLOS).anySatisfy(hello -> assertThat(hello).contains("\"capabilities\":[\"explain\",\"profile\",\"profile_memory\",\"request\",\"live_tasks\"]"));
     }
 }

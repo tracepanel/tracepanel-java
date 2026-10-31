@@ -19,6 +19,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * has run for a while: a trace nobody asked to profile costs nothing. A trace is sampled on the thread it is bound to
  * now (Tracepanel.current), so an async request or a coroutine is followed across the threads it resumes on, and a
  * thread back in its pool, serving another request, is not sampled for it.
+ *
+ * <p>A profile has the collector's runs while the trace ran, and its memory when it asked for it (Memory): the same
+ * thread reads the heap's level for it every 10 ms.
  */
 public final class Profiler {
     public static final String HEADER = "X-Tracepanel-Profile";
@@ -34,7 +37,7 @@ public final class Profiler {
     public static final String PARENT = "parent";
     /** The app's own code called Tracepanel.profile. */
     public static final String CODE = "code";
-    /** What a request asks for: the profile ("1"), or the profile with its memory ("memory", the time here). */
+    /** What a request asks for: the profile ("1"), or the profile with its memory ("memory", see Memory). */
     public static final String TIME = "1";
     public static final String MEMORY = "memory";
     /** How deep a stack is kept: a recursion beyond it is cut, its outermost frames kept. */
@@ -74,8 +77,8 @@ public final class Profiler {
     }
 
     /**
-     * Whether a request asks to be profiled: the X-Tracepanel-Profile header ("1", or "memory", which profiles its
-     * time here: this SDK has no memory profile), or the cookie a browser sends.
+     * Whether a request asks to be profiled: the X-Tracepanel-Profile header ("1", or "memory", which measures its
+     * memory too), or the cookie a browser sends.
      */
     public static boolean requested(String header, String cookies) {
         return asked(header, cookies) != null;
@@ -111,14 +114,40 @@ public final class Profiler {
         private final Map<Frame, Integer> lines = new HashMap<>();
         private final Map<List<Integer>, Integer> stacks = new LinkedHashMap<>();
         private int samples;
+        // The collector's runs while it runs; its memory too when it asked for it (null: not measured).
+        private Memory.Gc gc;
+        private volatile Memory.Window memory;
 
         void enter(Thread on) {
             thread.set(on);
+            Memory.Window measured = memory;
+            if (measured != null) measured.enter(on);
         }
 
         void leave(Thread on) {
             thread.compareAndSet(on, null);
+            Memory.Window measured = memory;
+            if (measured != null) measured.leave(on);
         }
+
+        /** Measures its memory from now on (once), on the thread it runs on now: `on`. */
+        synchronized void measureMemory(Thread on) {
+            if (memory != null) return;
+            Memory.Window window = new Memory.Window();
+            window.enter(on);
+            memory = window;
+        }
+
+        boolean measuresMemory() {
+            return memory != null;
+        }
+    }
+
+    /** Begin recording a trace's stacks, on the thread it is bound to now, and the collector's runs (start in µs). */
+    synchronized Recording start(Thread on, long startMicros) {
+        Recording recording = start(on);
+        recording.gc = new Memory.Gc(startMicros);
+        return recording;
     }
 
     /** Begin recording a trace's stacks, on the thread it is bound to now. */
@@ -134,19 +163,42 @@ public final class Profiler {
         return recording;
     }
 
-    /** End a trace's recording: its profile, or null when no sample saw it. */
+    /**
+     * End a trace's recording: its profile, with the collector's runs and its memory when measured; null when no sample
+     * saw it and its memory wasn't measured.
+     */
     Map<String, Object> stop(Recording recording) {
         running.remove(recording);
+        Map<String, Object> gc = recording.gc == null ? null : recording.gc.end();
+        Memory.Window window = recording.memory;
+        Map<String, Object> memory = window == null ? null : window.end();
         synchronized (recording) {
             recording.thread.set(null);
-            return document(recording);
+            Map<String, Object> profile = document(recording);
+            if (profile == null && memory == null) return null;
+            if (profile == null) profile = empty();
+            if (memory != null) profile.put("memory", memory);
+            if (gc != null) profile.put("gc", gc);
+            return profile;
         }
+    }
+
+    /** A profile no sample saw: a short trace's, whose memory is still told. */
+    private Map<String, Object> empty() {
+        Map<String, Object> profile = new LinkedHashMap<>();
+        profile.put("interval_us", intervalMs * 1000);
+        profile.put("samples", 0);
+        profile.put("frames", new ArrayList<>());
+        profile.put("stacks", new ArrayList<>());
+        return profile;
     }
 
     private void run() {
         int idle = 0;
         long intervalNs = TimeUnit.MILLISECONDS.toNanos(intervalMs);
         long next = System.nanoTime();
+        long heapEveryNs = TimeUnit.MILLISECONDS.toNanos(Memory.HEAP_EVERY_MS);
+        long nextHeap = next;
         while (true) {
             // At a fixed rate, so a sample stands for interval_us: reading the stacks takes time of its own. Behind by
             // more than a tick (a pause), it goes on from now.
@@ -171,6 +223,12 @@ public final class Profiler {
             }
             idle = 0;
             for (Recording recording : running) sample(recording);
+            // The heap's level for the peaks of the traces whose memory is measured, every HEAP_EVERY_MS.
+            long now = System.nanoTime();
+            if (now - nextHeap >= 0 && Memory.measuring()) {
+                Memory.sampleHeap();
+                nextHeap = now + heapEveryNs;
+            }
         }
     }
 
