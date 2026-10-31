@@ -4,7 +4,9 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Where Tracepanel keeps its state and what it calls the app, from the same TRACEPANEL_* variables as the other SDKs.
@@ -14,7 +16,8 @@ import java.util.Set;
  * @param storeDir the agent's store (.tracepanel), where it leaves its addresses
  * @param service the app's name on the services map
  * @param maxTraces how many traces the agent keeps
- * @param thresholds the limits the agent finds the issues with, as the other SDKs name them
+ * @param thresholds the limits the agent finds the issues with, as the other SDKs name them; slow_sql_ms_by_db and
+ *     long_transaction_ms_by_db, when set, hold one database (by its db.system) to its own limit
  * @param prefix where the console answers on the app's own origin
  * @param consoleRemote TRACEPANEL_CONSOLE_REMOTE: whether other machines may read the console; this one only by default
  * @param captureRequest TRACEPANEL_CAPTURE_REQUEST: a request's headers, query, body (what the app read), cookies and
@@ -30,7 +33,7 @@ public record Config(
         Path storeDir,
         String service,
         int maxTraces,
-        Map<String, Number> thresholds,
+        Map<String, Object> thresholds,
         String prefix,
         boolean consoleRemote,
         boolean captureRequest,
@@ -53,30 +56,47 @@ public record Config(
         THRESHOLDS.put("large_result_rows", new Object[] {"TRACEPANEL_LARGE_RESULT_ROWS", 1000});
     }
 
+    /** The thresholds that take a limit per database too: `100,snowflake=3000`. */
+    private static final Set<String> BY_DATABASE = Set.of("slow_sql_ms", "long_transaction_ms");
+
     /** From the environment; `fallbackService` names the app when TRACEPANEL_SERVICE doesn't (spring.application.name). */
     public static Config load(Map<String, String> env, String fallbackService) {
-        Path root = Path.of(env.getOrDefault("TRACEPANEL_ROOT", System.getProperty("user.dir"))).toAbsolutePath();
-        String service = nonEmpty(env.get("TRACEPANEL_SERVICE"));
+        return load((Function<String, String>) env::get, fallbackService);
+    }
+
+    /**
+     * From `settings`, asked by each variable's name (TRACEPANEL_SLOW_SQL_MS): a framework's lookup answers from its
+     * own configuration too (tracepanel.slow-sql-ms, see {@link #property}).
+     */
+    public static Config load(Function<String, String> settings, String fallbackService) {
+        Function<String, String> env = name -> nonEmpty(settings.apply(name));
+        Path root = Path.of(Objects.requireNonNullElse(env.apply("TRACEPANEL_ROOT"), System.getProperty("user.dir"))).toAbsolutePath();
+        String service = nonEmpty(env.apply("TRACEPANEL_SERVICE"));
         if (service == null) service = nonEmpty(fallbackService);
         if (service == null) service = root.getFileName() == null ? "app" : root.getFileName().toString();
         return new Config(
-                enabled(env.get("TRACEPANEL_ENABLED")),
+                enabled(env.apply("TRACEPANEL_ENABLED")),
                 root,
-                root.resolve(env.getOrDefault("TRACEPANEL_DIR", ".tracepanel")),
+                root.resolve(Objects.requireNonNullElse(env.apply("TRACEPANEL_DIR"), ".tracepanel")),
                 service,
-                integer(env.get("TRACEPANEL_MAX_TRACES"), 2000),
+                integer(env.apply("TRACEPANEL_MAX_TRACES"), 2000),
                 thresholds(env),
                 "/__tracepanel__/",
-                on(env.get("TRACEPANEL_CONSOLE_REMOTE")),
-                enabled(env.get("TRACEPANEL_CAPTURE_REQUEST")),
-                on(env.get("TRACEPANEL_PROFILE")),
-                enabled(env.get("TRACEPANEL_PROFILE_ENABLED")),
+                on(env.apply("TRACEPANEL_CONSOLE_REMOTE")),
+                enabled(env.apply("TRACEPANEL_CAPTURE_REQUEST")),
+                on(env.apply("TRACEPANEL_PROFILE")),
+                enabled(env.apply("TRACEPANEL_PROFILE_ENABLED")),
                 // Each millisecond, as in the Python SDK: a request of a few milliseconds still has a profile to read.
-                Math.max(integer(env.get("TRACEPANEL_PROFILE_INTERVAL_MS"), 1), 1));
+                Math.max(integer(env.apply("TRACEPANEL_PROFILE_INTERVAL_MS"), 1), 1));
     }
 
     public static Config load(String fallbackService) {
         return load(System.getenv(), fallbackService);
+    }
+
+    /** A variable's name as a configuration property: TRACEPANEL_SLOW_SQL_MS is tracepanel.slow-sql-ms. */
+    public static String property(String variable) {
+        return "tracepanel." + variable.substring("TRACEPANEL_".length()).toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
     /** A setting that is off unless it says on (1, true, yes, on). */
@@ -90,13 +110,37 @@ public record Config(
         return explicit == null || !OFF.contains(explicit.toLowerCase(Locale.ROOT));
     }
 
-    private static Map<String, Number> thresholds(Map<String, String> env) {
-        Map<String, Number> found = new LinkedHashMap<>();
-        THRESHOLDS.forEach((name, spec) -> found.put(name, number(env.get((String) spec[0]), (Integer) spec[1])));
+    /**
+     * The thresholds the settings name, the agent's defaults otherwise. TRACEPANEL_SLOW_SQL_MS and
+     * TRACEPANEL_LONG_TRANSACTION_MS take a limit per database too, by its db.system: `100,snowflake=3000` holds every
+     * database to 100 ms but Snowflake, to 3 s (slow_sql_ms_by_db). An entry that isn't a number is left out.
+     */
+    private static Map<String, Object> thresholds(Function<String, String> env) {
+        Map<String, Object> found = new LinkedHashMap<>();
+        Map<String, Map<String, Number>> byDatabase = new LinkedHashMap<>();
+        THRESHOLDS.forEach((name, spec) -> {
+            Number all = (Integer) spec[1];
+            String value = env.apply((String) spec[0]);
+            for (String entry : value == null ? new String[0] : value.split(",")) {
+                int equals = entry.indexOf('=');
+                Number number = number(equals < 0 ? entry.trim() : entry.substring(equals + 1).trim(), null);
+                if (number == null || number.doubleValue() < 0) continue;
+                if (equals < 0) {
+                    all = number;
+                    continue;
+                }
+                String system = entry.substring(0, equals).trim().toLowerCase(Locale.ROOT);
+                if (BY_DATABASE.contains(name) && !system.isEmpty()) {
+                    byDatabase.computeIfAbsent(name + "_by_db", key -> new LinkedHashMap<>()).put(system, number);
+                }
+            }
+            found.put(name, all);
+        });
+        found.putAll(byDatabase);
         return found;
     }
 
-    private static Number number(String value, int fallback) {
+    private static Number number(String value, Number fallback) {
         try {
             double parsed = Double.parseDouble(value);
             return parsed == Math.rint(parsed) ? (Number) (long) parsed : (Number) parsed;

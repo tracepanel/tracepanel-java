@@ -18,6 +18,7 @@ import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.content.TextContent
 import io.ktor.http.charset
+import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
@@ -93,6 +94,11 @@ private object Thrown : Hook<suspend (ApplicationCall, Throwable) -> Unit> {
     }
 }
 
+/** Each setting from its variable (TRACEPANEL_SLOW_SQL_MS), else from the app's config (tracepanel.slow-sql-ms). */
+internal fun settings(appConfig: ApplicationConfig, env: (String) -> String?): (String) -> String? = { name ->
+    env(name)?.takeUnless { it.isBlank() } ?: appConfig.propertyOrNull(Config.property(name))?.getString()
+}
+
 /**
  * Tracepanel in a Ktor app: install(Tracepanel). Each call is a trace named by its route (GET /books/{id}), its
  * coroutines carry it to every thread they run on (withContext(Dispatchers.IO), async), and its errors, logs and the
@@ -100,7 +106,8 @@ private object Thrown : Hook<suspend (ApplicationCall, Throwable) -> Unit> {
  * /__tracepanel__/. On in Ktor's development mode, or with TRACEPANEL_ENABLED=1; TRACEPANEL_ENABLED=0 turns it off.
  */
 val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
-    val config = Config.load(pluginConfig.service ?: application.environment.config.propertyOrNull("ktor.application.id")?.getString())
+    val appConfig = application.environment.config
+    val config = Config.load(settings(appConfig, System::getenv), pluginConfig.service ?: appConfig.propertyOrNull("ktor.application.id")?.getString())
     // On in Ktor's development mode (ktor.development, -Dio.ktor.development=true), or when TRACEPANEL_ENABLED says so
     // (tracepanel.enabled, as tracepanel-junit sets it): the dependency goes into the production build too.
     val explicit = System.getenv("TRACEPANEL_ENABLED").takeUnless { it.isNullOrBlank() } ?: System.getProperty("tracepanel.enabled")

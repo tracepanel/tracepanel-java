@@ -320,6 +320,20 @@ The same environment variables as the other Tracepanel SDKs:
 | `TRACEPANEL_LONG_TRANSACTION_MS` | `500` | a long transaction |
 | `TRACEPANEL_LARGE_RESULT_ROWS` | `1000` | a query without a LIMIT that read too many rows |
 
+`TRACEPANEL_SLOW_SQL_MS` and `TRACEPANEL_LONG_TRANSACTION_MS` take a limit
+per database too, by its kind: `TRACEPANEL_SLOW_SQL_MS=100,snowflake=3000`
+holds every database to 100 ms but Snowflake, to 3 s. The kind is the JDBC
+driver's product name, lowercase and without spaces: `postgresql`,
+`snowflake`, `googlebigquery`. Without one, the agent holds an analytical
+warehouse (Snowflake, BigQuery, Databricks, Redshift, ClickHouse) to 2 s
+per query.
+
+The limits can live in the app's own configuration too:
+`tracepanel.slow-sql-ms=100,snowflake=3000` in Spring's
+`application.properties`, or `tracepanel.slow-sql-ms` in Ktor's
+`application.conf`. Each is the variable's name in lowercase with dashes,
+and a variable that is set wins.
+
 ## Verify a release
 
 Each release after 0.4.1 says where its files came from. Every jar, POM

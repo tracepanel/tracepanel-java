@@ -65,6 +65,40 @@ class CoreTest {
     }
 
     @Test
+    void slow_query_and_long_transaction_limits_may_be_set_per_database() {
+        Config config = Config.load(Map.of(
+                "TRACEPANEL_SLOW_SQL_MS", "150, Snowflake=3000,bigquery=2500.5,oops=x",
+                "TRACEPANEL_LONG_TRANSACTION_MS", "snowflake=10000",
+                "TRACEPANEL_SLOW_HTTP_MS", "800,snowflake=1"), "shop");
+
+        Map<String, Object> expected = new LinkedHashMap<>();
+        expected.put("n_plus_one", 3);
+        expected.put("n_plus_one_min_ms", 5);
+        expected.put("slow_sql_ms", 150L);
+        expected.put("slow_http_ms", 800L);
+        expected.put("long_transaction_ms", 500);
+        expected.put("queue_wait_ms", 1000);
+        expected.put("large_result_rows", 1000);
+        expected.put("slow_sql_ms_by_db", Map.of("snowflake", 3000L, "bigquery", 2500.5));
+        expected.put("long_transaction_ms_by_db", Map.of("snowflake", 10000L));
+        assertEquals(expected, config.thresholds());
+    }
+
+    @Test
+    void a_framework_s_own_properties_set_what_the_variables_do() {
+        Map<String, String> properties = Map.of(
+                "tracepanel.slow-sql-ms", "100,snowflake=3000",
+                "tracepanel.long-transaction-ms", "700");
+
+        Config config = Config.load(name -> properties.get(Config.property(name)), "shop");
+
+        assertEquals("tracepanel.slow-sql-ms", Config.property("TRACEPANEL_SLOW_SQL_MS"));
+        assertEquals(Map.of("snowflake", 3000L), config.thresholds().get("slow_sql_ms_by_db"));
+        assertEquals(700L, config.thresholds().get("long_transaction_ms"));
+        assertEquals(null, config.thresholds().get("long_transaction_ms_by_db"));
+    }
+
+    @Test
     void a_request_s_details_are_kept_and_profiling_is_possible_unless_the_settings_say_otherwise() {
         Config defaults = Config.load(Map.of(), "shop");
         Config set = Config.load(Map.of(
