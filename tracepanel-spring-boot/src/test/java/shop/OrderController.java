@@ -51,6 +51,24 @@ public class OrderController {
         return () -> "report " + crunch(60);
     }
 
+    /** Allocates `megabytes`, kept until the answer: where a memory profile sees the memory go. */
+    @GetMapping("/report/memory")
+    public String reportMemory() {
+        return "report " + allocate(8);
+    }
+
+    /** The same, answered later on another thread. */
+    @GetMapping("/report/memory/later")
+    public Callable<String> reportMemoryLater() {
+        return () -> "report " + allocate(8);
+    }
+
+    static int allocate(int megabytes) {
+        byte[][] kept = new byte[megabytes][];
+        for (int i = 0; i < megabytes; i++) kept[i] = new byte[1024 * 1024];
+        return kept.length;
+    }
+
     /** Busy for about `millis`: where a profile sees the time go. */
     static long crunch(long millis) {
         long until = System.nanoTime() + millis * 1_000_000;

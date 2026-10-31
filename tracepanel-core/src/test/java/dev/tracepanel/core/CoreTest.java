@@ -104,13 +104,14 @@ class CoreTest {
         Config set = Config.load(Map.of(
                 "TRACEPANEL_CAPTURE_REQUEST", "0",
                 "TRACEPANEL_PROFILE", "1",
+                "TRACEPANEL_PROFILE_MEMORY", "yes",
                 "TRACEPANEL_PROFILE_ENABLED", "off",
                 "TRACEPANEL_PROFILE_INTERVAL_MS", "5"), "shop");
 
-        assertEquals(List.of(true, false, true, 1), List.of(
-                defaults.captureRequest(), defaults.profile(), defaults.profileEnabled(), defaults.profileIntervalMs()));
-        assertEquals(List.of(false, true, false, 5), List.of(
-                set.captureRequest(), set.profile(), set.profileEnabled(), set.profileIntervalMs()));
+        assertEquals(List.of(true, false, false, true, 1), List.of(defaults.captureRequest(), defaults.profile(),
+                defaults.profileMemory(), defaults.profileEnabled(), defaults.profileIntervalMs()));
+        assertEquals(List.of(false, true, true, false, 5), List.of(
+                set.captureRequest(), set.profile(), set.profileMemory(), set.profileEnabled(), set.profileIntervalMs()));
     }
 
     @Test

@@ -23,7 +23,7 @@ public final class Traces {
         Map<String, String> settings = Map.of("TRACEPANEL_AGENT", "off");
         Tracepanel tracepanel = new Tracepanel(Config.load(settings, "shop"), List.of(), settings);
         Trace trace = tracepanel.begin("http", name, Map.of());
-        tracepanel.profiledByCode(trace);
+        tracepanel.profiledByCode(trace, false);
         Tracepanel.bind(null);
         return trace;
     }

@@ -208,13 +208,16 @@ public final class Sender {
      * What the app's traces hold beyond the usual, said in the hello: a profile when one is asked for, and whether the
      * settings profile every trace (profile_all: the console's Profile button shows on), the request's details; and
      * what it sends besides them (live_tasks: task events); and that it answers EXPLAIN down the connection when it
-     * has a database (`databases`). No profile_memory: the SDK has no memory profiler.
+     * has a database (`databases`). profile_memory: a request may ask for its memory too, and profile_memory_all: the
+     * settings measure every profiled trace's (TRACEPANEL_PROFILE_MEMORY).
      */
     static List<String> capabilities(Config config, Set<String> sends, boolean databases) {
         List<String> capabilities = new ArrayList<>();
         if (databases) capabilities.add("explain");
         if (config.profileEnabled()) capabilities.add("profile");
+        if (config.profileEnabled()) capabilities.add("profile_memory");
         if (config.profileEnabled() && config.profile()) capabilities.add("profile_all");
+        if (config.profileEnabled() && config.profileMemory()) capabilities.add("profile_memory_all");
         if (config.captureRequest()) capabilities.add("request");
         capabilities.addAll(new TreeSet<>(sends));
         return capabilities;

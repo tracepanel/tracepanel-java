@@ -4,6 +4,23 @@
 
 ### Added
 
+- A profiled trace's memory, as the Python, JavaScript and Go SDKs record
+  it: the console's Memory view. A request asks for it with
+  `X-Tracepanel-Profile: memory` or the panel's `tracepanel_profile=memory`
+  cookie, the app's code with `Tracepanel.profile(true)`, and
+  `TRACEPANEL_PROFILE_MEMORY=1` (`tracepanel.profile-memory` in Spring and
+  Ktor) measures every profiled trace's. `allocated` is what the threads
+  that ran the trace allocated while they ran it, counted by the JVM for
+  each thread: the trace's own, across an async request's threads and a
+  coroutine's. `peak` and `net` are the heap's, read every 10 ms, before
+  each collection and at the end; `shared` says other traces ran
+  meanwhile. No allocation sites: JFR's allocation samples are too few
+  per request, tell where memory was allocated rather than held, and come
+  a second late. The hello says `profile_memory`, and
+  `profile_memory_all` with the setting. A request's "memory" ask used to
+  profile its time alone.
+- Every profile has the garbage collector's runs (`gc`): how many ran while
+  the trace did, their pause time, and each pause on the trace's clock.
 - `Tracepanel.profile()`: profiles the rest of the current trace from the
   app's own code, as Python's `tracepanel.profile()` does. Its HTTP calls
   and Kafka and RabbitMQ messages from then on ask the apps they reach for

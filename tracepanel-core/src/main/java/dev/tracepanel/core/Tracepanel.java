@@ -171,8 +171,9 @@ public final class Tracepanel {
         trace.attr("process.runtime.name", System.getProperty("java.vm.name", "java"));
         trace.attr("process.runtime.version", System.getProperty("java.version", ""));
         CURRENT.set(trace);
+        Memory.begun(trace);
         // TRACEPANEL_PROFILE profiles every trace; a request may still ask for its own (profile).
-        if (config.profile()) start(trace, Profiler.SETTING);
+        if (config.profile()) start(trace, Profiler.SETTING, false);
         Tests hooks = tests;
         if (hooks != null) hooks.begun(trace);
         return trace;
@@ -187,8 +188,17 @@ public final class Tracepanel {
      * From Kotlin, {@code import dev.tracepanel.core.Tracepanel.profile} makes it {@code profile()}.
      */
     public static boolean profile() {
+        return profile(false);
+    }
+
+    /**
+     * The same, with its memory measured too when `memory` is true, from now to its end: what its threads allocated,
+     * the heap's peak and what it kept (the profile's Memory view), as the panel's "memory" ask measures a request's.
+     * Its calls and messages then ask the apps they reach for their memory too.
+     */
+    public static boolean profile(boolean memory) {
         Tracepanel tracepanel = instance;
-        return tracepanel != null && tracepanel.profiledByCode(CURRENT.get());
+        return tracepanel != null && tracepanel.profiledByCode(CURRENT.get(), memory);
     }
 
     /**
@@ -197,15 +207,17 @@ public final class Tracepanel {
      * ask the same from now on. The trace is this thread's: begin made it so. {@link #profile()} needs no trace.
      */
     public void profile(Trace trace) {
-        profiledByCode(trace);
+        profiledByCode(trace, false);
     }
 
-    /** The app's own code asks to profile `trace` (null: none): whether it is profiled now. */
-    boolean profiledByCode(Trace trace) {
+    /** The app's own code asks to profile `trace` (null: none), its memory too when `memory`: whether it is profiled. */
+    boolean profiledByCode(Trace trace, boolean memory) {
         if (trace == null || !config.profileEnabled()) return false;
-        start(trace, Profiler.CODE);
+        start(trace, Profiler.CODE, memory);
         // Its calls and messages ask the apps they reach for a profile, unless its request asked for its own.
-        if (trace.asked == null) trace.asked = "1";
+        if (trace.asked == null || (memory && trace.asked.equals(Profiler.TIME))) {
+            trace.asked = memory ? Profiler.MEMORY : Profiler.TIME;
+        }
         return true;
     }
 
@@ -226,18 +238,25 @@ public final class Tracepanel {
      */
     public void profile(Trace trace, String asked, String reason) {
         if (asked == null || !config.profileEnabled()) return;
-        start(trace, reason);
+        start(trace, reason, Profiler.MEMORY.equals(asked));
         trace.asked = asked;
     }
 
     /**
      * Profiles the trace from now on, and says why on its root span (profile.reason: setting, header, cookie, parent
-     * or code): what started its profile, when something already had, stays its reason.
+     * or code): what started its profile, when something already had, stays its reason. Its memory is measured too
+     * when `memory` asks for it or TRACEPANEL_PROFILE_MEMORY measures every profiled trace's, from when it is first
+     * asked: a trace the setting profiles still has it measured once its request asks.
      */
-    private void start(Trace trace, String reason) {
-        if (!config.profileEnabled() || trace.recording != null) return;
-        trace.recording = profiler.start(Thread.currentThread());
-        trace.attr("profile.reason", reason);
+    private void start(Trace trace, String reason, boolean memory) {
+        if (!config.profileEnabled()) return;
+        Profiler.Recording recording = trace.recording;
+        if (recording == null) {
+            recording = profiler.start(Thread.currentThread(), trace.start());
+            trace.recording = recording;
+            trace.attr("profile.reason", reason);
+        }
+        if (memory || config.profileMemory()) recording.measureMemory(Thread.currentThread());
     }
 
     /** The trace ended: it goes to the agent, and the thread works for the one it worked for before, if any. */
@@ -246,6 +265,7 @@ public final class Tracepanel {
             if (trace.outer != null) CURRENT.set(trace.outer);
             else CURRENT.remove();
         }
+        Memory.ended(trace);
         Profiler.Recording recording = trace.recording;
         if (recording != null) trace.profile(profiler.stop(recording));
         Map<String, Object> document = trace.finish();

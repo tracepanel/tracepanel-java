@@ -285,21 +285,29 @@ class SenderTest {
     void the_hello_says_every_trace_is_profiled_when_the_settings_say_so() {
         Set<String> sends = Set.of("live_tasks");
 
-        assertEquals(List.of("profile", "request", "live_tasks"),
+        assertEquals(List.of("profile", "profile_memory", "request", "live_tasks"),
                 Sender.capabilities(Config.load(Map.of(), "shop"), sends, false));
-        assertEquals(List.of("profile", "profile_all", "request", "live_tasks"),
+        assertEquals(List.of("profile", "profile_memory", "profile_all", "request", "live_tasks"),
                 Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1"), "shop"), sends, false));
-        assertEquals(List.of("profile", "profile_all"),
+        assertEquals(List.of("profile", "profile_memory", "profile_all"),
                 Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_CAPTURE_REQUEST", "0"), "shop"), Set.of(), false));
+
+        // Every profiled trace's memory measured, by the settings.
+        assertEquals(List.of("profile", "profile_memory", "profile_all", "profile_memory_all"),
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_MEMORY", "1",
+                        "TRACEPANEL_CAPTURE_REQUEST", "0"), "shop"), Set.of(), false));
+        assertEquals(List.of("profile", "profile_memory", "profile_memory_all"),
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE_MEMORY", "1", "TRACEPANEL_CAPTURE_REQUEST", "0"), "shop"), Set.of(), false));
 
         // Profiling off: nothing profiles, whatever TRACEPANEL_PROFILE says.
         assertEquals(List.of("request"),
-                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), "shop"), Set.of(), false));
+                Sender.capabilities(Config.load(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_MEMORY", "1",
+                        "TRACEPANEL_PROFILE_ENABLED", "0"), "shop"), Set.of(), false));
     }
 
     @Test
     void the_hello_says_the_app_explains_down_its_connection_once_it_has_a_database() {
-        assertEquals(List.of("explain", "profile", "request"), Sender.capabilities(Config.load(Map.of(), "shop"), Set.of(), true));
+        assertEquals(List.of("explain", "profile", "profile_memory", "request"), Sender.capabilities(Config.load(Map.of(), "shop"), Set.of(), true));
     }
 
     @Test
@@ -317,7 +325,7 @@ class SenderTest {
 
             assertTrue(agent.got("profiled"));
             // After "explain", when an earlier test gave the app a database.
-            assertTrue(agent.hellos.get(0).matches(".*\"capabilities\":\\[(\"explain\",)?\"profile\",\"profile_all\".*"), agent.hellos.get(0));
+            assertTrue(agent.hellos.get(0).matches(".*\"capabilities\":\\[(\"explain\",)?\"profile\",\"profile_memory\",\"profile_all\".*"), agent.hellos.get(0));
         }
     }
 }
