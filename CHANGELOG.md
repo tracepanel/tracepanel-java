@@ -10,7 +10,10 @@
   a log record of kind `dump` on the current span (`dump.args`,
   `dump.lang` java or kotlin, `code.origin`), which the call tree always
   shows. A value under a secret's name is masked. Kotlin imports it as
-  `dump(...)`.
+  `dump(...)`. The expressions come from the call's source in any module
+  of the Gradle or Maven build the app runs in, at any depth, or from the
+  module of the class's own `build/classes` or `target/classes`, in every
+  source set, Kotlin multiplatform's too.
 - A slow query and a long transaction limit per database:
   `TRACEPANEL_SLOW_SQL_MS=100,snowflake=3000` holds Snowflake to 3 s and
   every other database to 100 ms, and `TRACEPANEL_LONG_TRANSACTION_MS`

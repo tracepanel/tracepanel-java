@@ -8,7 +8,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -74,7 +73,7 @@ final class Dumps {
 
     /** The frame that called Tracepanel.dump. */
     private static StackWalker.StackFrame caller() {
-        return StackWalker.getInstance()
+        return StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
                 .walk(frames -> frames.filter(frame -> !frame.getClassName().equals(Dumps.class.getName())
                                 && !frame.getClassName().equals(Tracepanel.class.getName()))
                         .findFirst())
@@ -88,8 +87,8 @@ final class Dumps {
         int line = frame == null ? 0 : frame.getLineNumber();
         String method = frame == null ? "?" : frame.getMethodName();
         String packagePath = packagePath(className, fileName);
-        Optional<Path> file = source(root, packagePath);
-        String path = file.map(found -> root.relativize(found).toString().replace('\\', '/')).orElse(packagePath);
+        Optional<Path> file = source(root, className, fileName, frame == null ? null : declaringClass(frame));
+        String path = file.map(found -> shown(root, found)).orElse(packagePath);
         List<String> exprs = file.map(found -> exprs(lines(found), line, values.length)).orElse(null);
 
         List<Map<String, Object>> args = new ArrayList<>();
@@ -182,7 +181,7 @@ final class Dumps {
         return null;
     }
 
-    // The source: the caller's file under the project's src/<set>/java or kotlin, or a module's beside it.
+    // The source: the caller's file in any module of the build the project is in (DumpSources).
 
     private static String packagePath(String className, String fileName) {
         int dot = className.lastIndexOf('.');
@@ -191,31 +190,32 @@ final class Dumps {
         return pkg + file;
     }
 
-    private static Optional<Path> source(Path root, String packagePath) {
-        return SOURCES.computeIfAbsent(root + "|" + packagePath, key -> {
-            List<Path> projects = new ArrayList<>();
-            projects.add(root);
-            try (DirectoryStream<Path> modules = Files.newDirectoryStream(root, Files::isDirectory)) {
-                for (Path module : modules) projects.add(module);
-            } catch (IOException | RuntimeException e) {
-                // The project's directory alone.
-            }
-            for (Path project : projects) {
-                Path src = project.resolve("src");
-                if (!Files.isDirectory(src)) continue;
-                try (DirectoryStream<Path> sets = Files.newDirectoryStream(src, Files::isDirectory)) {
-                    for (Path set : sets) {
-                        for (String language : List.of("java", "kotlin")) {
-                            Path candidate = set.resolve(language).resolve(packagePath);
-                            if (Files.isRegularFile(candidate)) return Optional.of(candidate);
-                        }
-                    }
-                } catch (IOException | RuntimeException e) {
-                    // Not this one.
-                }
-            }
-            return Optional.empty();
-        });
+    /** Found sources are kept; a miss is asked again, as the file may come (DumpSources rebuilds its index then). */
+    private static Optional<Path> source(Path root, String className, String fileName, Class<?> type) {
+        String key = root + "|" + className + "|" + fileName;
+        Optional<Path> found = SOURCES.get(key);
+        if (found != null && Files.isRegularFile(found.get())) return found;
+        found = DumpSources.find(root, className, fileName, type);
+        found.ifPresent(path -> SOURCES.put(key, Optional.of(path)));
+        return found;
+    }
+
+    /** The class of the frame, when the walker kept it. */
+    private static Class<?> declaringClass(StackWalker.StackFrame frame) {
+        try {
+            return frame.getDeclaringClass();
+        } catch (UnsupportedOperationException e) {
+            return null;
+        }
+    }
+
+    /** A source's path as the console shows it: from the project's root, else from its build's root. */
+    private static String shown(Path root, Path file) {
+        Path absolute = file.toAbsolutePath().normalize();
+        Path project = root.toAbsolutePath().normalize();
+        Path base = absolute.startsWith(project) ? project : DumpSources.buildRoot(project);
+        if (!absolute.startsWith(base)) base = project;
+        return base.relativize(absolute).toString().replace('\\', '/');
     }
 
     private static List<String> lines(Path file) {
