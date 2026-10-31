@@ -162,7 +162,7 @@ public final class Messages {
         Trace trace = tracepanel.begin("task", "task.run", destination, all);
         if (linked) trace.link("sent_by", sender[0], sender[1]);
         // Sent by a trace whose request asked to be profiled: this one is profiled too, and asks the same further on.
-        tracepanel.profile(trace, Profiler.asking(profile));
+        tracepanel.profile(trace, Profiler.asking(profile), Profiler.PARENT);
         tracepanel.tasks().started(system, id, destination, destination, retries);
         return trace;
     }

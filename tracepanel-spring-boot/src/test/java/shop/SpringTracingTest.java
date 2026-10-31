@@ -321,6 +321,30 @@ class SpringTracingTest {
                 .containsEntry("w3c.trace_id", ((Map<String, Object>) caller.get("attrs")).get("w3c.trace_id"));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_profiled_request_says_why_its_header_the_panel_s_cookie_or_the_calling_app_s_trace() throws Exception {
+        books();
+        get("/shelves/reason-header/books", "X-Tracepanel-Profile", "1");
+        get("/shelves/reason-cookie/books", "Cookie", "theme=dark; tracepanel_profile=1");
+        get("/relay/reason-parent", "X-Tracepanel-Profile", "1");
+        get("/shelves/reason-none/books");
+
+        Map<String, String> reasons = new LinkedHashMap<>();
+        for (String path : List.of("/shelves/reason-header/books", "/shelves/reason-cookie/books", "/relay/reason-parent",
+                "/shelves/reason-parent/books", "/shelves/reason-none/books")) {
+            reasons.put(path, (String) ((Map<String, Object>) FakeAgent.traceAt(path).get("attrs")).get("profile.reason"));
+        }
+
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("/shelves/reason-header/books", "header");
+        expected.put("/shelves/reason-cookie/books", "cookie");
+        expected.put("/relay/reason-parent", "header");
+        expected.put("/shelves/reason-parent/books", "parent");
+        expected.put("/shelves/reason-none/books", null);
+        assertThat(reasons).isEqualTo(expected);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"rest-client", "rest-template", "web-client", "jdk"})
     void a_call_asks_the_app_it_reaches_for_the_profile_its_request_asked_for(String client) throws Exception {

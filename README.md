@@ -282,7 +282,10 @@ the app read, the session and the answer's headers, secrets masked.
 The panel's Profile button, or an `X-Tracepanel-Profile: 1` header, profiles
 a request as a flame graph. The ask follows its HTTP calls and Kafka and
 RabbitMQ messages to the apps they reach. `TRACEPANEL_PROFILE=1` profiles
-every trace.
+every trace, and `Tracepanel.get().profile(trace)` one from the app's own
+code. A profiled trace says why in its root span's `profile.reason`:
+`setting`, `header`, `cookie`, `parent` (the calling app's trace asked) or
+`code`.
 
 The SDK downloads its agent the first time, checks its checksum and keeps it
 in `~/.cache/tracepanel/`. It comes from Maven Central, or from the mirror in

@@ -19,6 +19,11 @@
 - The limits can be set in Spring's `application.properties` or YAML and
   in Ktor's `application.conf` as well: `tracepanel.slow-sql-ms` and the
   others, each named after its variable. A variable that is set wins.
+- A profiled trace says why on its root span, as `profile.reason`:
+  `setting` (`TRACEPANEL_PROFILE`), `header` (`X-Tracepanel-Profile`),
+  `cookie` (the panel's Profile button), `parent` (a profiled trace of
+  another app asked, down its HTTP call or message) or `code`
+  (`Tracepanel.profile(trace)`).
 
 ## 0.9.0 (2026-10-30)
 

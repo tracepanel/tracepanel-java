@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
 
 /** The sampling profiler: a trace's stacks counted, as the trace format's `profile`. */
@@ -16,6 +18,45 @@ class ProfilerTest {
 
     private static StackTraceElement at(String className, String method, String file, int line) {
         return new StackTraceElement(className, method, file, line);
+    }
+
+    /** What a profiled trace says on its root span, profiled by `profile` under the settings `env`. */
+    private static Object reason(Map<String, String> env, BiConsumer<Tracepanel, Trace> profile) {
+        Map<String, String> settings = new HashMap<>(env);
+        settings.put("TRACEPANEL_AGENT", "off");
+        Tracepanel tracepanel = new Tracepanel(Config.load(settings, "shop"), List.of(), settings);
+        try {
+            Trace trace = tracepanel.begin("http", "GET /", Map.of());
+            profile.accept(tracepanel, trace);
+            return trace.attr("profile.reason");
+        } finally {
+            Tracepanel.bind(null);
+        }
+    }
+
+    @Test
+    void a_profiled_trace_says_why_on_its_root_span() {
+        Map<String, String> none = Map.of();
+
+        assertEquals("setting", reason(Map.of("TRACEPANEL_PROFILE", "1"), (tracepanel, trace) -> {}));
+        assertEquals("code", reason(none, (tracepanel, trace) -> tracepanel.profile(trace)));
+        assertEquals("header", reason(none, (tracepanel, trace) -> tracepanel.profile(trace, "1")));
+        assertEquals("cookie", reason(none, (tracepanel, trace) -> tracepanel.profile(trace, "memory", Profiler.COOKIE_REASON)));
+        assertEquals("parent", reason(none, (tracepanel, trace) -> tracepanel.profile(trace, "1", Profiler.PARENT)));
+
+        // What started its profile stays its reason; nothing asked, nothing profiled, no reason.
+        assertEquals("setting", reason(Map.of("TRACEPANEL_PROFILE", "1"), (tracepanel, trace) -> tracepanel.profile(trace, "1")));
+        assertNull(reason(none, (tracepanel, trace) -> tracepanel.profile(trace, null)));
+        assertNull(reason(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> {}));
+        assertNull(reason(Map.of("TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> tracepanel.profile(trace)));
+    }
+
+    @Test
+    void a_request_says_why_it_asks_its_header_from_another_app_s_trace_its_parent() {
+        assertEquals("header", Profiler.reason("1", "tracepanel_profile=1", false));
+        assertEquals("parent", Profiler.reason("memory", null, true));
+        assertEquals("cookie", Profiler.reason("0", "theme=dark; tracepanel_profile=1", true));
+        assertNull(Profiler.reason(null, "tracepanel_profile=0", false));
     }
 
     @Test

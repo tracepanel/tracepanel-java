@@ -170,7 +170,10 @@ val Tracepanel = createApplicationPlugin("Tracepanel", ::TracepanelConfig) {
         }
         val trace = tracepanel.begin("http", "$method $path", attrs)
         // Asked by a header or the panel's cookie: where this call's time goes in code.
-        tracepanel.profile(trace, Profiler.asked(call.request.headers[Profiler.HEADER], cookies))
+        val profileHeader = call.request.headers[Profiler.HEADER]
+        // From another app's profiled trace (its traceparent came along): "parent", else the header's or the cookie's.
+        val continued = testCall == null && attrs.containsKey("w3c.trace_id")
+        tracepanel.profile(trace, Profiler.asked(profileHeader, cookies), Profiler.reason(profileHeader, cookies, continued))
         // On this thread only inside the call's coroutines, which put it back on every thread they resume on: the
         // thread works for the trace it did before (none, or the test's whose client made the call).
         Core.bind(trace.outer())
