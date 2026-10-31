@@ -122,6 +122,7 @@ class MessagingTracingTest {
         get("/publish/" + path + "/report/time", "X-Tracepanel-Profile", "1");
         get("/publish/" + path + "/report/memory", "Cookie", "tracepanel_profile=memory");
         get("/publish/" + path + "/report/none");
+        get("/publish/" + path + "/report/code");
         Map<String, Object> time = receivedFrom("/publish/" + path + "/report/time");
         Map<String, Object> memory = receivedFrom("/publish/" + path + "/report/memory");
         Map<String, Object> none = receivedFrom("/publish/" + path + "/report/none");
@@ -135,5 +136,12 @@ class MessagingTracingTest {
         assertThat(memory).containsKey("profile");
 
         assertThat(none).containsEntry("name", "Listeners." + listener).doesNotContainKey("profile");
+
+        // The sender's own code profiled its trace: the message asks for a profile all the same.
+        Map<String, Object> code = receivedFrom("/publish/" + path + "/report/code");
+        assertThat(code).containsKey("profile");
+        assertThat((Map<String, Object>) code.get("attrs")).containsEntry("profile.reason", "parent");
+        assertThat((Map<String, Object>) FakeAgent.traceAt("/publish/" + path + "/report/code").get("attrs"))
+                .containsEntry("profile.reason", "code");
     }
 }

@@ -179,12 +179,34 @@ public final class Tracepanel {
     }
 
     /**
+     * Profiles the rest of the current trace, as the app's own code asks: from now to its end it samples where the
+     * trace's time goes, and its HTTP calls and the messages it sends from now on ask the apps they reach to profile
+     * theirs too, so the whole chain is profiled. A trace something already profiles (the TRACEPANEL_PROFILE setting,
+     * the panel's Profile button) keeps its profile.reason; one profiled here says "code". Returns whether the trace
+     * is profiled: false outside a trace, with Tracepanel off, or with profiling off (TRACEPANEL_PROFILE_ENABLED=0).
+     * From Kotlin, {@code import dev.tracepanel.core.Tracepanel.profile} makes it {@code profile()}.
+     */
+    public static boolean profile() {
+        Tracepanel tracepanel = instance;
+        return tracepanel != null && tracepanel.profiledByCode(CURRENT.get());
+    }
+
+    /**
      * Samples where the trace's time goes in code, from now to its end, when profiling is possible
-     * (TRACEPANEL_PROFILE_ENABLED): the app's own code asks (its profile.reason is "code"). The trace is this
-     * thread's: begin made it so.
+     * (TRACEPANEL_PROFILE_ENABLED): the app's own code asks (its profile.reason is "code"), and its calls and messages
+     * ask the same from now on. The trace is this thread's: begin made it so. {@link #profile()} needs no trace.
      */
     public void profile(Trace trace) {
+        profiledByCode(trace);
+    }
+
+    /** The app's own code asks to profile `trace` (null: none): whether it is profiled now. */
+    boolean profiledByCode(Trace trace) {
+        if (trace == null || !config.profileEnabled()) return false;
         start(trace, Profiler.CODE);
+        // Its calls and messages ask the apps they reach for a profile, unless its request asked for its own.
+        if (trace.asked == null) trace.asked = "1";
+        return true;
     }
 
     /**

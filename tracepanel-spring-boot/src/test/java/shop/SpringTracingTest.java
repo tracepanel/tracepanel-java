@@ -360,6 +360,20 @@ class SpringTracingTest {
         assertThat(get(path + "?own=1", "X-Tracepanel-Profile", "memory").body()).isEqualTo("1");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"rest-client", "rest-template", "web-client", "jdk"})
+    @SuppressWarnings("unchecked")
+    void a_handler_profiles_its_own_trace_and_its_calls_ask_the_app_they_reach_for_a_profile_too(String client)
+            throws Exception {
+        String path = "/relay/" + client + "/profiled";
+
+        assertThat(get(path).body()).isEqualTo("true 1");
+        assertThat((Map<String, Object>) FakeAgent.traceAt(path).get("attrs")).containsEntry("profile.reason", "code");
+
+        // A request that asked already: its reason stays, and what it asked for goes on.
+        assertThat(get(path, "X-Tracepanel-Profile", "memory").body()).isEqualTo("true memory");
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void work_a_proxied_bean_hands_to_the_executor_is_the_request_s_not_a_task() throws Exception {

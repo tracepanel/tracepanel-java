@@ -193,6 +193,24 @@ includes, its `pom.xml` modules, any directory with a `src`), or the module
 of the class's `build/classes` or `target/classes`, in every source set
 (`main`, `test`, `commonMain`...). Without it, the values print alone.
 
+## Profiling from code
+
+`Tracepanel.profile()` profiles the rest of the current trace, from the
+line that calls it to the trace's end:
+
+```java
+Tracepanel.profile();
+Report report = reports.build(month);
+```
+
+From then on its HTTP calls and its Kafka and RabbitMQ messages ask the apps
+they reach for a profile too, as the panel's Profile button does. It returns
+whether the trace is profiled: outside a trace, with Tracepanel off or with
+`TRACEPANEL_PROFILE_ENABLED=0` it does nothing and returns `false`. A trace
+something already profiles keeps its `profile.reason`; one profiled here
+says `code`. From Kotlin, `import dev.tracepanel.core.Tracepanel.profile`
+makes it `profile()`.
+
 ## In tests
 
 `tracepanel-junit` runs each test as a trace and fails a test that makes
@@ -289,8 +307,9 @@ the app read, the session and the answer's headers, secrets masked.
 The panel's Profile button, or an `X-Tracepanel-Profile: 1` header, profiles
 a request as a flame graph. The ask follows its HTTP calls and Kafka and
 RabbitMQ messages to the apps they reach. `TRACEPANEL_PROFILE=1` profiles
-every trace, and `Tracepanel.get().profile(trace)` one from the app's own
-code. A profiled trace says why in its root span's `profile.reason`:
+every trace, and `Tracepanel.profile()` one from the app's own code
+([Profiling from code](#profiling-from-code)). A profiled trace says why in
+its root span's `profile.reason`:
 `setting`, `header`, `cookie`, `parent` (the calling app's trace asked) or
 `code`.
 
