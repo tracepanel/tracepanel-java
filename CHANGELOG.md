@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Tracepanel.dump(values...)`: values to look at, printed on stderr as
+  python-devtools' `debug()` prints them, with the call's line and each
+  value's expression, pretty text, type and length. In a trace it is also
+  a log record of kind `dump` on the current span (`dump.args`,
+  `dump.lang` java or kotlin, `code.origin`), which the call tree always
+  shows. A value under a secret's name is masked. Kotlin imports it as
+  `dump(...)`.
+
 ## 0.9.0 (2026-10-30)
 
 The SDK downloads `tracepanel-agent` 0.9.0 the first time. The agent links

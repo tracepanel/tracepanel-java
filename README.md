@@ -163,6 +163,29 @@ fix:
 What each integration records, and its limits, are in
 [Integrations](https://tracepanel.dev/docs/java/integrations).
 
+## Dumps
+
+`Tracepanel.dump(...)` prints values to look at, as python-devtools'
+`debug()` does: the line that called it, then each value as written in the
+call, its pretty text, its type and its length, on stderr:
+
+```java
+Tracepanel.dump(order, order.lines(), "here");
+```
+
+```
+src/main/java/shop/Orders.java:42 place
+    order: Order[id=7, total=12.50, lines=[Line[sku="pen", quantity=2]]] (Order)
+    order.lines(): [Line[sku="pen", quantity=2]] (ListN) len=1
+    "here" (String) len=4
+```
+
+In a trace, the dump is also on the request's call tree, which always shows
+it. From Kotlin, `import dev.tracepanel.core.Tracepanel.dump` makes it
+`dump(order)`. A value under a secret's name, such as `password` or `token`,
+is masked. The expressions come from the source under the project's `src/`;
+without it, the values print alone.
+
 ## In tests
 
 `tracepanel-junit` runs each test as a trace and fails a test that makes

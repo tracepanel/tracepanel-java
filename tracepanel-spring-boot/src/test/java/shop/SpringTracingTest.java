@@ -4,12 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import dev.tracepanel.testing.FakeAgent;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -507,5 +512,67 @@ class SpringTracingTest {
         assertThat(response.headers().firstValue("Tracepanel-Id")).isPresent();
         assertThat(response.body()).isEqualTo(StreamController.gzip(StreamController.PAGE));
     }
-}
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_dump_prints_and_is_a_debug_record_of_the_request_s_trace() throws Exception {
+        PrintStream err = System.err;
+        ByteArrayOutputStream printed = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(printed, true, StandardCharsets.UTF_8));
+        try {
+            assertThat(get("/baskets/7").statusCode()).isEqualTo(200);
+        } finally {
+            System.setErr(err);
+        }
+        Map<String, Object> trace = FakeAgent.traceAt("/baskets/7");
+        List<Map<String, Object>> spans = (List<Map<String, Object>>) trace.get("spans");
+        List<Map<String, Object>> logs = (List<Map<String, Object>>) trace.get("logs");
+        String file = "src/test/java/shop/DumpController.java";
+        int line = Files.readAllLines(Path.of(file)).indexOf(
+                "        Tracepanel.dump(basket, skus, stock, \"checked\");") + 1;
+        String basket = """
+                Basket[
+                    id=7,
+                    total=12.50,
+                    lines=[Line[sku="pen", quantity=2], Line[sku="ink", quantity=1]]
+                ]""";
+        String message = file + ":" + line + " basket\n"
+                + "    basket: " + basket.replace("\n", "\n    ") + " (Basket)\n"
+                + "    skus: [\"pen\", \"ink\"] (ListN) len=2\n"
+                + "    stock: {\"ink\"=3, \"pen\"=40} (LinkedHashMap) len=2\n"
+                + "    \"checked\" (String) len=7";
+        Map<String, Object> log = new LinkedHashMap<>(logs.get(0));
+        Map<String, Object> handler = spans.stream().filter(span -> "view".equals(span.get("kind"))).findFirst().orElseThrow();
+
+        assertThat(line).isPositive();
+        assertThat(printed.toString(StandardCharsets.UTF_8)).contains(message + System.lineSeparator());
+
+        assertThat(logs).hasSize(1);
+        assertThat(log.remove("time")).isInstanceOf(Number.class);
+        Map<String, Object> expected = new LinkedHashMap<>();
+        expected.put("span_id", handler.get("id"));
+        expected.put("level", "debug");
+        expected.put("logger", "tracepanel");
+        expected.put("message", message);
+        expected.put("exception", null);
+        expected.put("attrs", Map.of(
+                "log.kind", "dump",
+                "dump.lang", "java",
+                "dump.args", List.of(
+                        arg("basket", basket, "Basket", null),
+                        arg("skus", "[\"pen\", \"ink\"]", "ListN", 2),
+                        arg("stock", "{\"ink\"=3, \"pen\"=40}", "LinkedHashMap", 2),
+                        arg(null, "\"checked\"", "String", 7)),
+                "code.origin", file + ":" + line + " in basket"));
+        assertThat(log).isEqualTo(expected);
+    }
+
+    private static Map<String, Object> arg(String expr, String repr, String type, Integer len) {
+        Map<String, Object> arg = new LinkedHashMap<>();
+        arg.put("expr", expr);
+        arg.put("repr", repr);
+        arg.put("type", type);
+        arg.put("len", len);
+        return arg;
+    }
+}
