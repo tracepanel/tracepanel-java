@@ -1,5 +1,6 @@
 package shop;
 
+import dev.tracepanel.core.Tracepanel;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.amqp.rabbit.annotation.Queue;
@@ -40,12 +41,16 @@ public class MessagingController {
 
     @GetMapping("/publish/kafka/report/{name}")
     public String kafkaReport(@PathVariable String name) {
+        // "code": the handler profiles its trace before it sends, so the message asks for a profile too.
+        if (name.equals("code")) Tracepanel.profile();
         kafka.send("reports", name);
         return "sent";
     }
 
     @GetMapping("/publish/rabbit/report/{name}")
     public String rabbitReport(@PathVariable String name) {
+        // "code": the handler profiles its trace before it sends, so the message asks for a profile too.
+        if (name.equals("code")) Tracepanel.profile();
         rabbit.convertAndSend("reports", name);
         return "sent";
     }

@@ -5,6 +5,7 @@ import dev.tracepanel.core.Jdbc
 import dev.tracepanel.ktor.settings
 import io.ktor.server.config.MapApplicationConfig
 import dev.tracepanel.core.Tracepanel.dump
+import dev.tracepanel.core.Tracepanel.profile
 import dev.tracepanel.ktor.Tracepanel
 import dev.tracepanel.ktor.TracepanelClient
 import dev.tracepanel.ktor.tracepanelUser
@@ -171,6 +172,11 @@ class KtorTracingTest {
                 get("/relay/asked") {
                     val own = call.request.queryParameters["own"]
                     call.respondText(appClient.get("/asked") { if (own != null) header("X-Tracepanel-Profile", own) }.bodyAsText())
+                }
+                // The handler profiles its own trace, then calls /asked: whether it is profiled, and what that was asked.
+                get("/relay/profiled") {
+                    val profiled = profile()
+                    call.respondText("$profiled ${appClient.get("/asked").bodyAsText()}")
                 }
                 post("/orders") {
                     val order = call.receiveText()
@@ -391,6 +397,16 @@ class KtorTracingTest {
             mapOf("/books/71" to "header", "/books/72" to "cookie", "/relay/73" to "header", "/books/73" to "parent", "/books/74" to null),
             reasons,
         )
+    }
+
+    @Test
+    fun a_handler_profiles_its_own_call_and_its_calls_ask_the_app_they_reach_for_a_profile_too() = app {
+        assertEquals("true 1", client.get("/relay/profiled").bodyAsText())
+        @Suppress("UNCHECKED_CAST")
+        assertEquals("code", (FakeAgent.traceAt("/relay/profiled")["attrs"] as Map<String, Any?>)["profile.reason"])
+
+        // A request that asked already: what it asked for goes on.
+        assertEquals("true memory", client.get("/relay/profiled") { header("X-Tracepanel-Profile", "memory") }.bodyAsText())
     }
 
     @Test

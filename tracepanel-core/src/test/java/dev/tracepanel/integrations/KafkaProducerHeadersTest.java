@@ -49,6 +49,13 @@ class KafkaProducerHeadersTest {
     }
 
     @Test
+    void a_record_asks_for_a_profile_once_the_app_s_code_profiled_its_trace() {
+        Map<String, String> headers = sent(Traces.profiledByCode("GET /report"));
+
+        assertEquals("1", headers.get("tracepanel-profile"));
+    }
+
+    @Test
     void a_trace_its_request_didn_t_ask_to_profile_asks_nothing_of_its_records() {
         Map<String, String> headers = sent(Traces.request("GET /"));
 

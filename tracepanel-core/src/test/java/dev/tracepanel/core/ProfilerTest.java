@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +51,61 @@ class ProfilerTest {
         assertNull(reason(none, (tracepanel, trace) -> tracepanel.profile(trace, null)));
         assertNull(reason(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> {}));
         assertNull(reason(Map.of("TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> tracepanel.profile(trace)));
+    }
+
+    /** What `profile` (the app's code) found in a trace begun under the settings `env`: its answer, reason, ask. */
+    private static List<Object> byCode(Map<String, String> env, BiConsumer<Tracepanel, Trace> before) {
+        Map<String, String> settings = new HashMap<>(env);
+        settings.put("TRACEPANEL_AGENT", "off");
+        Tracepanel tracepanel = new Tracepanel(Config.load(settings, "shop"), List.of(), settings);
+        try {
+            Trace trace = tracepanel.begin("http", "GET /", Map.of());
+            before.accept(tracepanel, trace);
+            boolean profiled = tracepanel.profiledByCode(Tracepanel.current());
+            Messages.Publish publish = Messages.publish("kafka");
+            publish.handedOver();
+            String call = HttpCalls.start(trace, "GET", URI.create("http://127.0.0.1:1/")).profile();
+            return Arrays.asList(profiled, trace.attr("profile.reason"), call, publish.profile());
+        } finally {
+            Tracepanel.bind(null);
+        }
+    }
+
+    @Test
+    void the_app_s_code_profiles_the_rest_of_its_trace_and_its_calls_and_messages_ask_for_a_profile_too() {
+        Map<String, String> none = Map.of();
+
+        assertEquals(Arrays.asList(true, "code", "1", "1"), byCode(none, (tracepanel, trace) -> {}));
+
+        // Profiled already: its reason stays, and what its request asked for goes on.
+        assertEquals(Arrays.asList(true, "setting", "1", "1"), byCode(Map.of("TRACEPANEL_PROFILE", "1"), (tracepanel, trace) -> {}));
+        assertEquals(Arrays.asList(true, "header", "memory", "memory"),
+                byCode(none, (tracepanel, trace) -> tracepanel.profile(trace, "memory")));
+
+        // Profiling off: nothing profiled, nothing asked.
+        assertEquals(Arrays.asList(false, null, null, null),
+                byCode(Map.of("TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> {}));
+    }
+
+    @Test
+    void the_app_s_code_profiles_nothing_outside_a_trace_or_with_tracepanel_off() {
+        Map<String, String> settings = Map.of("TRACEPANEL_AGENT", "off");
+        Tracepanel tracepanel = new Tracepanel(Config.load(settings, "shop"), List.of(), settings);
+
+        assertEquals(false, tracepanel.profiledByCode(null));
+        assertEquals(false, Tracepanel.profile());
+
+        // No Tracepanel started in this process: it is off, and a trace bound here stays as it was.
+        Trace trace = new Trace("http", "GET /", Map.of());
+        Tracepanel.bind(trace);
+        try {
+            assertNull(Tracepanel.get());
+            assertEquals(false, Tracepanel.profile());
+            assertNull(trace.attr("profile.reason"));
+            assertNull(trace.asked);
+        } finally {
+            Tracepanel.bind(null);
+        }
     }
 
     @Test

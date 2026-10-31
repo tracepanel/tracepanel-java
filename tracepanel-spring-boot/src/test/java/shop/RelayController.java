@@ -1,5 +1,6 @@
 package shop;
 
+import dev.tracepanel.core.Tracepanel;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -65,6 +66,16 @@ public class RelayController {
     /** A call to /asked through `client`: what the app it reaches was asked; `own` the header the app sets itself. */
     @GetMapping("/relay/{client}/asked")
     public String relayAsked(@PathVariable String client, @RequestParam(required = false) String own) {
+        return callAsked(client, own);
+    }
+
+    /** The handler profiles its own trace (Tracepanel.profile), then calls /asked: whether it is profiled, and that. */
+    @GetMapping("/relay/{client}/profiled")
+    public String relayProfiled(@PathVariable String client) {
+        return Tracepanel.profile() + " " + callAsked(client, null);
+    }
+
+    private String callAsked(String client, String own) {
         String url = "http://127.0.0.1:" + environment.getProperty("local.server.port") + "/asked";
         String[] headers = own == null ? new String[0] : new String[] {"X-Tracepanel-Profile", own};
         return switch (client) {

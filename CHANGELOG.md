@@ -4,6 +4,16 @@
 
 ### Added
 
+- `Tracepanel.profile()`: profiles the rest of the current trace from the
+  app's own code, as Python's `tracepanel.profile()` does. Its HTTP calls
+  and Kafka and RabbitMQ messages from then on ask the apps they reach for
+  a profile too. It returns whether the trace is profiled, and does
+  nothing outside a trace, with Tracepanel off or with profiling off, where
+  `Tracepanel.get().profile(trace)` threw on a null `get()`. A trace
+  already profiled keeps its `profile.reason`; one profiled here says
+  `code`. Kotlin imports it as `profile()`.
+  `Tracepanel.get().profile(trace)` still works, and now asks the same of
+  the trace's calls and messages.
 - `Tracepanel.dump(values...)`: values to look at, printed on stderr as
   python-devtools' `debug()` prints them, with the call's line and each
   value's expression, pretty text, type and length. In a trace it is also
