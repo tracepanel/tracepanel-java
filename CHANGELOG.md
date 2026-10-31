@@ -60,7 +60,9 @@
   `setting` (`TRACEPANEL_PROFILE`), `header` (`X-Tracepanel-Profile`),
   `cookie` (the panel's Profile button), `parent` (a profiled trace of
   another app asked, down its HTTP call or message) or `code`
-  (`Tracepanel.profile(trace)`).
+  (`Tracepanel.profile(trace)`). `setting` when the setting would profile
+  the trace anyway, else the first ask that profiled it, as in the other
+  SDKs.
 
 ## 0.9.0 (2026-10-30)
 

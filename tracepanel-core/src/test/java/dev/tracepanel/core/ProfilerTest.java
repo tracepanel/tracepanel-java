@@ -46,8 +46,20 @@ class ProfilerTest {
         assertEquals("cookie", reason(none, (tracepanel, trace) -> tracepanel.profile(trace, "memory", Profiler.COOKIE_REASON)));
         assertEquals("parent", reason(none, (tracepanel, trace) -> tracepanel.profile(trace, "1", Profiler.PARENT)));
 
-        // What started its profile stays its reason; nothing asked, nothing profiled, no reason.
-        assertEquals("setting", reason(Map.of("TRACEPANEL_PROFILE", "1"), (tracepanel, trace) -> tracepanel.profile(trace, "1")));
+        // The setting would profile it anyway: whatever asked too. Else the first ask stays its reason; nothing asked,
+        // nothing profiled, no reason.
+        Map<String, String> all = Map.of("TRACEPANEL_PROFILE", "1");
+        assertEquals("setting", reason(all, (tracepanel, trace) -> tracepanel.profile(trace, "1")));
+        assertEquals("setting", reason(all, (tracepanel, trace) -> tracepanel.profile(trace, "1", Profiler.COOKIE_REASON)));
+        assertEquals("setting", reason(all, (tracepanel, trace) -> tracepanel.profile(trace)));
+        assertEquals("header", reason(none, (tracepanel, trace) -> {
+            tracepanel.profile(trace, "1");
+            tracepanel.profile(trace);
+        }));
+        assertEquals("code", reason(none, (tracepanel, trace) -> {
+            tracepanel.profile(trace);
+            tracepanel.profile(trace, "1");
+        }));
         assertNull(reason(none, (tracepanel, trace) -> tracepanel.profile(trace, null)));
         assertNull(reason(Map.of("TRACEPANEL_PROFILE", "1", "TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> {}));
         assertNull(reason(Map.of("TRACEPANEL_PROFILE_ENABLED", "0"), (tracepanel, trace) -> tracepanel.profile(trace)));
