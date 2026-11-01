@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Hibernate 6's lazy proxies (`Brand$HibernateProxy`, with no suffix
+  after it) and the JDK's interface proxies (`$Proxy172`) in the app's
+  packages are no longer the app's own code. A profile's Your code
+  showed `Brand$HibernateProxy.getName` as one of the app's functions.
+
 ## 0.10.1 (2026-11-01)
 
 ### Fixed
