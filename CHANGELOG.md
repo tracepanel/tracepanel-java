@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.3 (2026-11-01)
+
+### Changed
+
+- Runs `tracepanel-agent` 0.10.3.
+
 ## 0.10.2 (2026-11-01)
 
 ### Fixed
