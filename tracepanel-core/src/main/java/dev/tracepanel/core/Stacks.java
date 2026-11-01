@@ -18,13 +18,27 @@ import java.util.stream.Stream;
  * error's frames, oldest first, with the source around each of the app's lines.
  */
 public final class Stacks {
-    /** The JVM's, the frameworks' and the drivers': never the app's code, whatever the app's packages. */
+    /**
+     * The JVM's, the frameworks', the drivers' and the common libraries': never the app's code, whatever the app's
+     * packages. Where the app's packages aren't known, any class outside these is the app's, so the list is long.
+     */
     private static final List<String> LIBRARIES = List.of(
             "java.", "javax.", "jakarta.", "jdk.", "sun.", "com.sun.", "kotlin.", "kotlinx.", "scala.", "groovy.",
             "org.springframework.", "org.hibernate.", "com.zaxxer.", "org.postgresql.", "com.mysql.", "org.mariadb.",
             "org.h2.", "org.hsqldb.", "org.apache.", "org.eclipse.", "io.netty.", "reactor.", "io.micrometer.",
             "ch.qos.logback.", "org.slf4j.", "org.thymeleaf.", "com.fasterxml.", "org.jboss.", "net.bytebuddy.",
-            "org.junit.", "dev.tracepanel.");
+            "org.junit.", "dev.tracepanel.", "io.opentelemetry.", "io.ktor.", "org.jetbrains.", "com.google.",
+            "okhttp3.", "okio.", "io.grpc.", "io.undertow.", "io.vertx.", "org.aspectj.", "org.glassfish.", "org.jooq.",
+            "org.yaml.", "io.lettuce.", "redis.clients.", "software.amazon.", "com.amazonaws.", "io.swagger.",
+            "org.springdoc.", "org.webjars.", "com.github.benmanes.", "io.github.resilience4j.", "com.mongodb.",
+            "org.mongodb.", "org.bson.", "org.flywaydb.", "liquibase.", "org.reactivestreams.", "io.r2dbc.",
+            "org.redisson.", "com.rabbitmq.", "org.quartz.", "org.ehcache.", "org.xnio.", "org.mybatis.", "com.mchange.",
+            "oracle.jdbc.", "com.microsoft.sqlserver.", "org.sqlite.", "io.jsonwebtoken.",
+            "com.nimbusds.", "org.bouncycastle.", "org.mockito.", "org.assertj.", "org.hamcrest.", "org.testcontainers.",
+            "io.mockk.", "io.kotest.", "org.koin.", "dagger.", "com.squareup.", "io.sentry.", "co.elastic.",
+            "org.elasticsearch.", "io.prometheus.", "org.HdrHistogram.", "org.LatencyUtils.", "org.objenesis.",
+            "org.attoparser.", "org.unbescape.", "org.json.", "net.minidev.", "com.jayway.", "org.xml.", "org.w3c.",
+            "org.ietf.", "org.omg.", "org.graalvm.", "com.oracle.", "graphql.", "com.netflix.");
     /**
      * What makes a query rather than asks for one: the JVM's plumbing, the ORMs and their repositories, the pools and the
      * drivers, Tracepanel itself. Past these is the library code that wanted the rows (Jackson writing a lazy relation, a

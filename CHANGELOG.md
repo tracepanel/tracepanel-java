@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Where the app's packages aren't known (no `@SpringBootApplication`, a
+  Ktor module the plugin couldn't place, `Tracepanel.start` without
+  them), OpenTelemetry's, Ktor's, JetBrains', Google's, OkHttp's,
+  gRPC's, Lettuce's, the AWS SDK's and other common libraries' frames
+  are no longer the app's own code. A profile's Your code and a query's
+  call site showed them as the app's: only the JVM's, the frameworks'
+  and the drivers' were known as libraries.
+
 ## 0.10.0 (2026-10-31)
 
 ### Added
