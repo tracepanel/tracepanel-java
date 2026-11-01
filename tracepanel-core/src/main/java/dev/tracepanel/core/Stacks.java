@@ -78,11 +78,14 @@ public final class Stacks {
     }
 
     /**
-     * Classes made at runtime in the app's packages: Hibernate's lazy proxies (Author$HibernateProxy$…), Spring's
-     * CGLIB subclasses (…$$SpringCGLIB$$0), ByteBuddy's. Their frames have no line of the app's to point at.
+     * Classes made at runtime in the app's packages: Hibernate's lazy proxies (Author$HibernateProxy, Hibernate 6's
+     * name, or Author$HibernateProxy$…), Spring's CGLIB subclasses (…$$SpringCGLIB$$0), lambdas (…$$Lambda/0x…),
+     * ByteBuddy's, and the JDK's interface proxies ($Proxy172). Their frames have no line of the app's to point at.
      */
     private static boolean generated(String className) {
-        return className.contains("$$") || className.contains("$HibernateProxy$") || className.contains("$ByteBuddy$");
+        String simple = className.substring(className.lastIndexOf('.') + 1);
+        return className.contains("$$") || className.contains("$HibernateProxy") || className.contains("$ByteBuddy$")
+                || simple.startsWith("$Proxy");
     }
 
     /** The app's frame nearest to the call being made now, as "path:line in method", or null when none is the app's. */
