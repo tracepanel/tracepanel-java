@@ -128,6 +128,23 @@ class CoreTest {
     }
 
     @Test
+    void with_no_app_packages_known_the_libraries_frames_are_still_not_the_app_s() {
+        Stacks stacks = new Stacks(Path.of("/srv/shop"), List.of());
+
+        // Frames of a profiled Ktor request with OpenTelemetry's agent on, the app's packages not found.
+        assertEquals(
+                List.of(true, true, false, false, false, false, false, false, false, false, false),
+                List.of("shop.catalog.CatalogRoutesKt", "com.acme.store.Search",
+                                "io.opentelemetry.sdk.trace.SdkSpanBuilder", "io.ktor.server.engine.BaseApplicationEngine",
+                                "org.jetbrains.exposed.sql.Query", "com.google.common.collect.ImmutableList",
+                                "okhttp3.internal.connection.RealCall", "io.lettuce.core.RedisChannelHandler",
+                                "kotlinx.coroutines.DispatchedTask", "jdk.internal.misc.Unsafe", "dev.tracepanel.core.Profiler")
+                        .stream()
+                        .map(stacks::inApp)
+                        .toList());
+    }
+
+    @Test
     void a_redirect_that_answers_a_page_s_navigation_is_named_in_a_cookie_after_those_before_it() {
         String a = "01K7B2Y7Q8M3E5R9T1V4W6X8Z0";
         String b = "01K7B2Y7Q8M3E5R9T1V4W6X8Z1";
