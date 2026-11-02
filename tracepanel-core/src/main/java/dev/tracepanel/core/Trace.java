@@ -56,6 +56,15 @@ public final class Trace {
         this.root = span(rootKind, name, Map.of(), start);
     }
 
+    /**
+     * What its request asked to be profiled for ("1", "memory"), or its own code (Tracepanel.profile): what the work
+     * it hands on asks for too (its calls, its messages, its tasks). Null when nothing asked: a trace the
+     * TRACEPANEL_PROFILE setting profiles asks nothing of them.
+     */
+    public String profileAsked() {
+        return asked;
+    }
+
     public String id() {
         return id;
     }

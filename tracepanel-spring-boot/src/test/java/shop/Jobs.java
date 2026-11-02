@@ -34,6 +34,12 @@ public class Jobs implements CommandLineRunner {
         db.queryForObject("SELECT 4", Integer.class);
     }
 
+    /** Long enough for its profile to have samples. */
+    @Async
+    public void buildReport() {
+        OrderController.crunch(60);
+    }
+
     @Async
     public void chargeCard() {
         throw new IllegalStateException("card declined");
@@ -72,6 +78,12 @@ public class Jobs implements CommandLineRunner {
         @GetMapping("/queue/rebuild")
         String rebuild() {
             jobs.rebuildIndex();
+            return "queued";
+        }
+
+        @GetMapping("/queue/report")
+        String report() {
+            jobs.buildReport();
             return "queued";
         }
 

@@ -439,6 +439,39 @@ class SpringTracingTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void an_async_method_s_task_says_how_it_went() throws Exception {
+        get("/queue");
+        get("/queue/charge");
+        Map<String, Object> done = FakeAgent.trace("Jobs.sendDigest");
+        Map<String, Object> failed = FakeAgent.trace("Jobs.chargeCard");
+
+        assertThat(done).containsEntry("status", "ok");
+        assertThat((Map<String, Object>) done.get("attrs")).containsEntry("task.state", "SUCCESS");
+
+        assertThat(failed).containsEntry("status", "error");
+        assertThat((Map<String, Object>) failed.get("attrs")).containsEntry("task.state", "FAILURE");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void an_async_method_queued_by_a_profiled_request_is_profiled_too() throws Exception {
+        get("/queue/report", "X-Tracepanel-Profile", "1");
+        Map<String, Object> task = FakeAgent.trace("Jobs.buildReport");
+        Map<String, Object> profile = (Map<String, Object>) task.get("profile");
+
+        assertThat((Map<String, Object>) task.get("attrs")).containsEntry("profile.reason", "parent");
+        assertThat((List<Map<String, Object>>) profile.get("frames"))
+                .anySatisfy(frame -> assertThat(frame).containsEntry("function", "OrderController.crunch"));
+
+        // One its request didn't ask a profile of isn't profiled.
+        get("/queue");
+        Map<String, Object> plain = FakeAgent.trace("Jobs.sendDigest");
+        assertThat(plain).doesNotContainKey("profile");
+        assertThat((Map<String, Object>) plain.get("attrs")).doesNotContainKey("profile.reason");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void a_scheduled_method_and_a_runner_are_commands() throws Exception {
         Map<String, Object> scheduled = FakeAgent.trace("Jobs.nightly");
         Map<String, Object> runner = FakeAgent.trace("Jobs.run");

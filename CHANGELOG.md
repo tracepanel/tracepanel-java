@@ -13,6 +13,15 @@
   explained but not analyzed. EXPLAIN ANALYZE still runs on a
   connection of its own, in a transaction that is rolled back.
 
+### Fixed
+
+- An @Async method's task says how it went, "success" or "failure"
+  (`task.state`), as the other SDKs' tasks do, and so does a message's
+  (Kafka, RabbitMQ). A task queued by a request that asked to be
+  profiled (the panel's Profile button, `X-Tracepanel-Profile`, the
+  app's own `Tracepanel.profile()`) is profiled too, its profile.reason
+  "parent", and has its Profile tab.
+
 ## 0.11.0 (2026-11-02)
 
 ### Fixed

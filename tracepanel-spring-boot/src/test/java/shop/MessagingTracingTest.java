@@ -53,6 +53,7 @@ class MessagingTracingTest {
         assertThat(attrs).containsEntry("task.system", system)
                 .containsEntry("task.queue", "books")
                 .containsEntry("task.trigger", "message")
+                .containsEntry("task.state", "SUCCESS")
                 .containsEntry("w3c.trace_id", ((Map<String, Object>) request.get("attrs")).get("w3c.trace_id"));
         assertThat((List<Map<String, Object>>) received.get("links")).singleElement().satisfies(link -> {
             assertThat(link).containsEntry("kind", "sent_by").containsEntry("trace_id", request.get("id"));
