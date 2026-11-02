@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- EXPLAIN takes a CTE query (`WITH … SELECT …`), by the rule the agent
+  and its console use. Its words are read outside strings, quoted
+  names and comments. A query that changes data is refused with the
+  reason, a data-modifying CTE too ("This query changes data (DELETE
+  inside WITH): it isn't explained."), as are `SELECT … INTO` and a
+  second statement. A query that locks rows (`FOR UPDATE`) is
+  explained but not analyzed. EXPLAIN ANALYZE still runs on a
+  connection of its own, in a transaction that is rolled back.
+
 ## 0.11.0 (2026-11-02)
 
 ### Fixed

@@ -23,7 +23,7 @@ It runs while you develop, and everything stays on your machine.
 | --- | --- |
 | **Java** | 17 and later, apps in Java or Kotlin. |
 | **Frameworks** | Spring Boot 3.5 and 4 with Spring MVC, Kotlin suspend functions, `Callable` and `DeferredResult` handlers included. Ktor 3. WebFlux apps aren't supported yet. |
-| **Databases** | SQL through JDBC, whatever runs it: Spring Data JPA, Hibernate, `JdbcTemplate`, jOOQ, Exposed. Transactions. EXPLAIN on PostgreSQL, MySQL, H2 and SQLite. |
+| **Databases** | SQL through JDBC, whatever runs it: Spring Data JPA, Hibernate, `JdbcTemplate`, jOOQ, Exposed. Transactions. EXPLAIN on PostgreSQL, MySQL, H2 and SQLite of a SELECT or a `WITH … SELECT` that changes no data (ANALYZE rolled back). |
 | **Redis and MongoDB** | Lettuce (Spring Data Redis, the cache) and Spring Data MongoDB, with their own N+1 and duplicates. |
 | **Messaging** | Kafka and RabbitMQ: what a `KafkaTemplate` or a `RabbitTemplate` sends, and each message a `@KafkaListener` or `@RabbitListener` receives as a trace of its own, linked to the one that sent it. |
 | **HTTP clients** | `RestClient`, `RestTemplate`, `WebClient` and the JDK's `HttpClient`, each call with a `traceparent`. Ktor's client through `TracepanelClient`. |
