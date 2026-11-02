@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A SQL query's Rows are the rows the app read from its results. Every
+  query said 0: they were counted after its span was recorded. The
+  count is now written in when the results are read to their end or
+  closed, the statement runs again or closes, or the trace ends, also
+  for `execute()` with `getResultSet()`. A SELECT with no LIMIT that
+  returned too many rows is now reported.
+
 ## 0.10.3 (2026-11-01)
 
 ### Changed

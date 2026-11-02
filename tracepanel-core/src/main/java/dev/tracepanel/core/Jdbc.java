@@ -18,6 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * SQL through JDBC, whatever runs it (JPA, Hibernate, Spring Data, jOOQ, JdbcTemplate): each statement a span of the
@@ -27,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Jdbc {
     private static final Set<String> EXECUTE = Set.of("execute", "executeQuery", "executeUpdate", "executeLargeUpdate");
     private static final Set<String> BATCH = Set.of("executeBatch", "executeLargeBatch");
+    private static final String RETURNED_ROWS = "db.response.returned_rows";
     /** The app's databases by alias, unrecorded: what EXPLAIN runs on (Explain), outside every trace. */
     private static final Map<String, javax.sql.DataSource> DATABASES = new ConcurrentHashMap<>();
 
@@ -172,6 +174,8 @@ public final class Jdbc {
         private String sql;
         private final List<Object> params = new ArrayList<>();
         private final List<String> batch = new ArrayList<>();
+        // The rows of the query that ran last, which the app reads after its span ended.
+        private Rows rows;
 
         Statements(Statement target, String sql, Database database) {
             this.target = target;
@@ -190,27 +194,45 @@ public final class Jdbc {
                 params.clear();
             } else if (name.equals("addBatch") && args != null && args.length == 1) {
                 batch.add((String) args[0]);
+            } else if (rows != null && name.equals("getResultSet")) {
+                // The results of the statement execute() ran: their rows count into its span.
+                Object result = call(target, method, args);
+                return result instanceof ResultSet set ? rows.wrap(set) : result;
+            } else if (rows != null && name.equals("close")) {
+                rows.flush();
             }
             boolean executes = EXECUTE.contains(name) || BATCH.contains(name);
+            if (executes && rows != null) {
+                // Executing again closes the last results: what was read of them is all they gave.
+                rows.flush();
+                rows = null;
+            }
             Trace trace = executes ? Tracepanel.current() : null;
             if (trace == null) return call(target, method, args);
             String text = args != null && args.length > 0 && args[0] instanceof String given ? given : sql;
             if (text == null && !batch.isEmpty()) text = batch.get(0);
             if (text == null) return call(target, method, args);
             long start = Trace.nowMicros();
-            boolean failed = false;
             Map<String, Object> attrs = attrs(text, BATCH.contains(name));
+            Object result;
             try {
-                Object result = call(target, method, args);
-                if (result instanceof ResultSet rows) return rows(rows, attrs);
-                return result;
+                result = call(target, method, args);
             } catch (Throwable e) {
-                failed = true;
+                trace.done("sql", Sql.spanName(text), attrs, start, true);
                 throw e;
             } finally {
-                trace.done("sql", Sql.spanName(text), attrs, start, failed);
                 if (BATCH.contains(name)) batch.clear();
             }
+            // A query's span lasts as long as it ran; the rows it gave are those the app reads from it, after.
+            boolean results = result instanceof ResultSet || Boolean.TRUE.equals(result) && name.equals("execute");
+            if (results) attrs.put(RETURNED_ROWS, 0);
+            Map<String, Object> span = trace.done("sql", Sql.spanName(text), attrs, start, false);
+            if (result instanceof ResultSet set) {
+                rows = new Rows(trace, span, true);
+                return rows.wrap(set);
+            }
+            if (name.equals("execute")) rows = new Rows(trace, span, results);
+            return result;
         }
 
         private Map<String, Object> attrs(String text, boolean many) {
@@ -234,16 +256,43 @@ public final class Jdbc {
             attrs.put("code.template", null);
             return attrs;
         }
+    }
 
-        /** The rows a query returned, counted as the app reads them: a SELECT without a LIMIT that read too many. */
-        private static ResultSet rows(ResultSet rows, Map<String, Object> attrs) {
-            int[] count = {0};
-            attrs.put("db.response.returned_rows", 0);
+    /**
+     * The rows a query returned, counted as the app reads them (a SELECT without a LIMIT that read too many), into its
+     * span: when its results are read to their end or closed, its statement runs again or closes, and when the trace
+     * ends, as they stand then. Rows read after the trace ended aren't in it.
+     */
+    private static final class Rows {
+        private final Trace trace;
+        private final Map<String, Object> span;
+        private final AtomicInteger count = new AtomicInteger();
+        // Whether the query gave results: an update execute() ran gives none, unless the app asks for them.
+        private volatile boolean results;
+
+        Rows(Trace trace, Map<String, Object> span, boolean results) {
+            this.trace = trace;
+            this.span = span;
+            this.results = results;
+            trace.late(this::flush);
+        }
+
+        void flush() {
+            if (results) trace.spanAttr(span, RETURNED_ROWS, count.get());
+        }
+
+        ResultSet wrap(ResultSet set) {
+            results = true;
             return (ResultSet) Proxy.newProxyInstance(
                     Jdbc.class.getClassLoader(), new Class<?>[] {ResultSet.class}, (proxy, method, args) -> {
-                        Object result = call(rows, method, args);
-                        if (method.getName().equals("next") && Boolean.TRUE.equals(result)) {
-                            attrs.put("db.response.returned_rows", ++count[0]);
+                        Object result = call(set, method, args);
+                        switch (method.getName()) {
+                            case "next" -> {
+                                if (Boolean.TRUE.equals(result)) count.incrementAndGet();
+                                else flush();
+                            }
+                            case "close" -> flush();
+                            default -> {}
                         }
                         return result;
                     });
