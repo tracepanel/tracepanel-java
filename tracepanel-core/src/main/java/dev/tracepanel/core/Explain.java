@@ -24,8 +24,9 @@ import javax.sql.DataSource;
  * explain this app's queries then.
  */
 final class Explain {
-    private static final Pattern SELECT = Pattern.compile("^\\s*(SELECT|WITH)\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern EXPLAIN = Pattern.compile("^\\s*EXPLAIN\\b", Pattern.CASE_INSENSITIVE);
+    /** What the agent writes before the statement: the statement after it is what Explainable checks. */
+    private static final Pattern EXPLAIN = Pattern.compile(
+            "^\\s*EXPLAIN\\s+(QUERY\\s+PLAN\\s+|\\(ANALYZE,\\s*BUFFERS\\)\\s+|ANALYZE\\s+)?", Pattern.CASE_INSENSITIVE);
     /** As long as the agent waits for an answer. */
     private static final int TIMEOUT_SECONDS = 15;
     private static final Pattern SEQ_SCAN = Pattern.compile("Seq Scan on (\\w+)");
@@ -54,13 +55,14 @@ final class Explain {
         DataSource database = Jdbc.database(alias);
         if (database == null) return json(422, Map.of("error", "The app has no database " + alias + " to run EXPLAIN on."));
         String statement = String.valueOf(attrs.get("db.statement"));
-        if (!SELECT.matcher(statement).find()) return json(422, Map.of("error", "Only SELECT statements can be explained."));
+        String refused = Explainable.refusal(statement, false);
+        if (refused != null) return json(422, Map.of("error", refused));
         if (!(attrs.get("db.params") instanceof List<?> values)) {
             return json(422, Map.of("error", "Parameters of this query were not recorded."));
         }
         try {
             return json(200, run(database, alias, statement, values, "1".equals(params.get("analyze"))));
-        } catch (SQLException e) {
+        } catch (SQLException | IllegalArgumentException e) {
             return json(422, Map.of("error", String.valueOf(e.getMessage())));
         }
     }
@@ -69,6 +71,8 @@ final class Explain {
             throws SQLException {
         return query(database, vendor -> {
             boolean analyzed = analyzed(analyze, vendor);
+            String refused = Explainable.refusal(statement, analyzed);
+            if (refused != null) throw new IllegalArgumentException(refused);
             String prefix = switch (vendor) {
                 case "sqlite" -> "EXPLAIN QUERY PLAN ";
                 case "postgresql" -> analyzed ? "EXPLAIN (ANALYZE, BUFFERS) " : "EXPLAIN ";
@@ -98,9 +102,13 @@ final class Explain {
         String alias = request.get("alias") instanceof String named && !named.isEmpty() ? named : "default";
         DataSource database = Jdbc.database(alias);
         if (database == null) throw new IllegalArgumentException("The app has no database " + alias + " to run EXPLAIN on.");
-        if (!(request.get("sql") instanceof String sql) || !EXPLAIN.matcher(sql).find()) {
-            throw new IllegalArgumentException("Only an EXPLAIN is run.");
-        }
+        String sql = request.get("sql") instanceof String asked ? asked : "";
+        Matcher explain = EXPLAIN.matcher(sql);
+        if (!explain.find()) throw new IllegalArgumentException("Only an EXPLAIN is run.");
+        // The agent writes ANALYZE only where the database runs it; then a statement that locks rows is refused too.
+        boolean analyze = explain.group(1) != null && explain.group(1).toUpperCase(java.util.Locale.ROOT).contains("ANALYZE");
+        String refused = Explainable.refusal(sql.substring(explain.end()), analyze);
+        if (refused != null) throw new IllegalArgumentException(refused);
         List<?> values = request.get("params") instanceof List<?> params ? params : List.of();
         return query(database, vendor -> sql, values, (rows, vendor) -> {
             ResultSetMetaData meta = rows.getMetaData();
