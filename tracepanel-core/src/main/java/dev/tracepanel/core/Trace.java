@@ -26,6 +26,8 @@ public final class Trace {
     private final List<Map<String, Object>> errors = new ArrayList<>();
     private final Deque<Map<String, Object>> open = new ArrayDeque<>();
     private final List<Map<String, Object>> links = new ArrayList<>();
+    // What a span learns after it ended (the rows a query's results gave the app), written in before it is read.
+    private final List<Runnable> late = new ArrayList<>();
     private final Map<String, Object> root;
     private String name;
     private String status = "ok";
@@ -75,6 +77,7 @@ public final class Trace {
 
     /** Its spans so far, each as it is now: a test counts its queries while it runs. */
     public synchronized List<Map<String, Object>> spans() {
+        for (Runnable update : late) update.run();
         List<Map<String, Object>> copy = new ArrayList<>(spans.size());
         for (Map<String, Object> span : spans) copy.add(new LinkedHashMap<>(span));
         return copy;
@@ -168,6 +171,23 @@ public final class Trace {
             dbMicros += (long) span.get("duration");
         }
         return span;
+    }
+
+    /**
+     * Sets an attribute of a span that already ended, while the trace runs: what a span learns later, such as the rows
+     * the app read from a query's results.
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized void spanAttr(Map<String, Object> span, String key, Object value) {
+        if (!finished) ((Map<String, Object>) span.get("attrs")).put(key, value);
+    }
+
+    /**
+     * Runs `update` before the trace's spans are read, and before it ends: a span's attribute that keeps changing after
+     * the span (rows still being read) is written in as it stands then.
+     */
+    public synchronized void late(Runnable update) {
+        if (!finished) late.add(update);
     }
 
     public synchronized void log(String level, String logger, String message, String exception, Map<String, Object> attrs) {
@@ -266,6 +286,8 @@ public final class Trace {
 
     /** The trace ended: its document, as the agent takes it. */
     public synchronized Map<String, Object> finish() {
+        for (Runnable update : late) update.run();
+        late.clear();
         finished = true;
         duration = nowMicros() - start;
         root.put("duration", duration);

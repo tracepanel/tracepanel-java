@@ -87,7 +87,10 @@ class SpringTracingTest {
         assertThat(sql.get(1).get("name")).isEqualTo("SELECT author");
         assertThat(lookup).containsEntry("db.fingerprint", "SELECT name FROM author WHERE id = ?")
                 .containsEntry("db.system", "h2")
-                .containsEntry("db.params", List.of(1));
+                .containsEntry("db.params", List.of(1))
+                .containsEntry("db.response.returned_rows", 1);
+        // The rows JdbcTemplate read from each query's results, after the query's span ended.
+        assertThat((Map<String, Object>) sql.get(0).get("attrs")).containsEntry("db.response.returned_rows", 4);
         assertThat(String.valueOf(lookup.get("code.origin"))).matches("src/test/java/shop/BookController\\.java:\\d+ in books");
 
         List<Map<String, Object>> logs = (List<Map<String, Object>>) trace.get("logs");
