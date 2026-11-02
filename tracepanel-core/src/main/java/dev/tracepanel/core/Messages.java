@@ -185,6 +185,8 @@ public final class Messages {
             trace.error(error, tracepanel.stacks(), false);
             trace.failed();
         }
+        // How it went, as every SDK's tasks say it.
+        trace.attr("task.state", error == null ? "SUCCESS" : "FAILURE");
         tracepanel.finish(trace);
         tracepanel.tasks().finished(String.valueOf(trace.attr("task.system")), String.valueOf(trace.attr("task.id")),
                 error == null ? "SUCCESS" : "FAILURE");

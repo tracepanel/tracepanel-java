@@ -1,6 +1,7 @@
 package dev.tracepanel.spring;
 
 import dev.tracepanel.core.LiveTasks;
+import dev.tracepanel.core.Profiler;
 import dev.tracepanel.core.Trace;
 import dev.tracepanel.core.Tracepanel;
 import dev.tracepanel.core.Ulid;
@@ -22,7 +23,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  * The work an app does besides requests, each a trace of its own: an @Async method's run is a task (in the request's
  * call tree, the task.enqueue that queued it, which its trace links back to), an @Scheduled method's run and a
  * CommandLineRunner's or ApplicationRunner's are commands (the console's Jobs). Inside a trace (an @Async method
- * on a synchronous executor), the work is a step of it.
+ * on a synchronous executor), the work is a step of it. A task says how it went (task.state: SUCCESS or FAILURE), as
+ * every SDK's tasks do, and is profiled when the trace that queued it was asked to be (profile.reason "parent").
  *
  * <p>The console's Live (the Tasks page's Now) shows them as they go: an @Async method's run is queued from its
  * task.enqueue on, then runs (system spring); an @Scheduled method's runs (system scheduled). A runner's isn't: it is
@@ -31,10 +33,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 final class Background implements MethodInterceptor {
     static final String ASYNC = "spring";
     static final String SCHEDULED = "scheduled";
-    // Where the executor's thread finds what queued the task it runs: the queuing trace, its span and its role.
+    // Where the executor's thread finds what queued the task it runs: the queuing trace, its span, its role, the task's
+    // id in Live and what the queuing trace was asked to be profiled for (null: nothing).
     private static final ThreadLocal<Queued> QUEUED = new ThreadLocal<>();
 
-    private record Queued(String traceId, String spanId, Object role, String taskId) {}
+    private record Queued(String traceId, String spanId, Object role, String taskId, String profile) {}
 
     @Override
     public Object invoke(MethodInvocation invocation) throws Throwable {
@@ -62,7 +65,11 @@ final class Background implements MethodInterceptor {
             attrs.put("task.trigger", queued == null ? "other" : "request");
             if (queued != null && queued.role() != null) attrs.put("service.role", queued.role());
             trace = tracepanel.begin("task", "task.run", name, attrs);
-            if (queued != null) trace.link("enqueued_by", queued.traceId(), queued.spanId());
+            if (queued != null) {
+                trace.link("enqueued_by", queued.traceId(), queued.spanId());
+                // Queued by a trace asked to be profiled: profiled too, and asks the same further on (its calls).
+                tracepanel.profile(trace, queued.profile(), Profiler.PARENT);
+            }
         } else {
             Scheduled scheduled = AnnotatedElementUtils.findMergedAnnotation(method, Scheduled.class);
             if (scheduled != null) {
@@ -82,6 +89,7 @@ final class Background implements MethodInterceptor {
             trace.failed();
             throw error;
         } finally {
+            if (task) trace.attr("task.state", failed ? "FAILURE" : "SUCCESS");
             tracepanel.finish(trace);
             if (live != null) tracepanel.tasks().finished(live, liveId, failed ? "FAILURE" : "SUCCESS");
         }
@@ -167,7 +175,7 @@ final class Background implements MethodInterceptor {
             String spanId = (String) trace.done("task.enqueue", name, attrs, Trace.nowMicros(), false).get("id");
             // Queued in Live until the executor runs it.
             tracepanel.tasks().enqueued(ASYNC, taskId, name, null, trace.id(), spanId);
-            Queued queued = new Queued(trace.id(), spanId, trace.attr("service.role"), taskId);
+            Queued queued = new Queued(trace.id(), spanId, trace.attr("service.role"), taskId, trace.profileAsked());
             return () -> {
                 // Run inside a trace (a synchronous executor), it is a step of it: no task of its own in Live.
                 boolean inline = Tracepanel.current() != null;

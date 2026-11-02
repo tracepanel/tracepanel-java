@@ -204,7 +204,8 @@ Report report = reports.build(month);
 ```
 
 From then on its HTTP calls and its Kafka and RabbitMQ messages ask the apps
-they reach for a profile too, as the panel's Profile button does. It returns
+they reach for a profile too, and the `@Async` tasks it queues are profiled,
+as the panel's Profile button does. It returns
 whether the trace is profiled: outside a trace, with Tracepanel off or with
 `TRACEPANEL_PROFILE_ENABLED=0` it does nothing and returns `false`. A trace
 something already profiles keeps its `profile.reason`; one profiled here
