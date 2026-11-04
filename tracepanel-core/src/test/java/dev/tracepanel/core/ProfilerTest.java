@@ -6,10 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
@@ -160,7 +163,8 @@ class ProfilerTest {
     @Test
     @SuppressWarnings("unchecked")
     void stacks_are_counted_outermost_first_each_function_once_without_tracepanel_s_frames() {
-        Profiler.Recording recording = new Profiler.Recording();
+        long start = 1_790_000_000_000_000L;
+        Profiler.Recording recording = new Profiler.Recording(start);
         // As the JVM gives a stack: the innermost call first.
         StackTraceElement[] list = {
                 at("com.shop.BookService", "list", "BookService.java", 42),
@@ -170,15 +174,17 @@ class ProfilerTest {
         StackTraceElement[] render = {
                 at("com.shop.BookController", "books", "BookController.java", 18),
                 at("java.lang.Thread", "run", "Thread.java", 1583)};
-        profiler.count(recording, list);
-        profiler.count(recording, render);
-        profiler.count(recording, render);
+        // Each in the 10 ms of the trace it was taken in: list's in the first, render's in the second.
+        profiler.count(recording, list, start + 4_000);
+        profiler.count(recording, render, start + 12_000);
+        profiler.count(recording, render, start + 19_000);
 
         Map<String, Object> profile = profiler.document(recording);
 
         assertEquals(Map.of(
                 "interval_us", 1000L,
                 "samples", 3,
+                "bucket_us", 10_000L,
                 "frames", List.of(
                         Map.of("function", "Thread.run", "module", "java.lang.Thread", "file", "java/lang/Thread.java",
                                 "line", 1583, "in_app", false),
@@ -188,8 +194,8 @@ class ProfilerTest {
                         Map.of("function", "BookService.list", "module", "com.shop.BookService",
                                 "file", "com/shop/BookService.java", "line", 42, "in_app", true)),
                 "stacks", List.of(
-                        Map.of("frames", List.of(0, 1), "count", 2),
-                        Map.of("frames", List.of(0, 1, 2), "count", 1))), profile);
+                        Map.of("frames", List.of(0, 1), "count", 2, "at", List.of(List.of(1L, 2L))),
+                        Map.of("frames", List.of(0, 1, 2), "count", 1, "at", List.of(List.of(0L, 1L))))), profile);
     }
 
     @Test
@@ -197,12 +203,12 @@ class ProfilerTest {
     void past_its_limit_a_new_stack_counts_as_other_and_a_deep_one_keeps_its_outermost_frames() {
         Profiler.Recording recording = new Profiler.Recording();
         for (int n = 0; n < Profiler.MAX_STACKS + 3; n++) {
-            profiler.count(recording, new StackTraceElement[] {at("com.shop.Step", "step" + n, "Step.java", 1)});
+            profiler.count(recording, new StackTraceElement[] {at("com.shop.Step", "step" + n, "Step.java", 1)}, Trace.nowMicros());
         }
         Profiler.Recording deep = new Profiler.Recording();
         StackTraceElement[] recursion = new StackTraceElement[Profiler.MAX_DEPTH + 50];
         for (int i = 0; i < recursion.length; i++) recursion[i] = at("com.shop.Tree", "walk", "Tree.java", recursion.length - i);
-        profiler.count(deep, recursion);
+        profiler.count(deep, recursion, Trace.nowMicros());
 
         Map<String, Object> profile = profiler.document(recording);
         List<Map<String, Object>> stacks = (List<Map<String, Object>>) profile.get("stacks");
@@ -218,6 +224,50 @@ class ProfilerTest {
         assertNull(other.get("module"));
 
         assertEquals(Profiler.MAX_DEPTH, ((List<Integer>) deepStack.get("frames")).size());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void a_thread_is_sampled_in_the_buckets_it_ran_in_its_compute_then_its_sleep() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            started.countDown();
+            long until = System.nanoTime() + 60_000_000L;
+            long sum = 0;
+            while (System.nanoTime() < until) sum += Math.floorMod(System.nanoTime(), 7);
+            if (sum == 42) System.out.print("");
+            try {
+                Thread.sleep(80);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "worker");
+        Profiler.Recording recording = profiler.start(worker, Trace.nowMicros());
+        worker.start();
+        started.await();
+        worker.join();
+        Map<String, Object> profile = profiler.stop(recording);
+
+        List<Map<String, Object>> frames = (List<Map<String, Object>>) profile.get("frames");
+        List<Map<String, Object>> stacks = (List<Map<String, Object>>) profile.get("stacks");
+        int sleep = -1;
+        for (int i = 0; i < frames.size(); i++) if (String.valueOf(frames.get(i).get("function")).startsWith("Thread.sleep")) sleep = i;
+        int slept = sleep;
+        List<Long> sleeping = new ArrayList<>();
+        List<Long> computing = new ArrayList<>();
+        for (Map<String, Object> stack : stacks) {
+            List<List<Long>> at = (List<List<Long>>) stack.get("at");
+            long seen = at.stream().mapToLong(pair -> pair.get(1)).sum();
+            assertEquals(((Integer) stack.get("count")).longValue(), seen, stack.toString());
+            List<Long> into = ((List<Integer>) stack.get("frames")).contains(slept) ? sleeping : computing;
+            at.forEach(pair -> into.add(pair.get(0)));
+        }
+
+        assertEquals(10_000L, profile.get("bucket_us"));
+        assertTrue(sleep >= 0, frames.toString());
+        // Its compute's buckets come before its sleep's: the stacks say when they ran.
+        assertTrue(Collections.min(computing) < Collections.min(sleeping), computing + " " + sleeping);
+        assertTrue(Collections.max(sleeping) >= 10, sleeping.toString());
     }
 
     @Test

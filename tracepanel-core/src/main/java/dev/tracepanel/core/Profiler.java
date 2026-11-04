@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -15,7 +16,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * the Python SDK's.
  *
  * <p>One daemon thread looks at the stack of the thread running each profiled trace every `profileIntervalMs`
- * (Thread.getStackTrace), and counts each stack it sees. It starts with the first profiled trace and ends once none
+ * (Thread.getStackTrace), and counts each stack it sees, in the 10 ms of the trace it saw it in (`bucket_us`, a
+ * stack's `at`), so the console splits the trace's time by when each stack ran, as it does every language's. It starts with the first profiled trace and ends once none
  * has run for a while: a trace nobody asked to profile costs nothing. A trace is sampled on the thread it is bound to
  * now (Tracepanel.current), so an async request or a coroutine is followed across the threads it resumes on, and a
  * thread back in its pool, serving another request, is not sampled for it.
@@ -49,6 +51,8 @@ public final class Profiler {
     // This SDK's own frames say nothing about the app.
     private static final String OWN = "dev.tracepanel.";
     private static final Frame OTHER = new Frame("(other)", "(other)");
+    /** How wide a stretch of the trace a stack's `at` counts its samples in, as every SDK counts them. */
+    static final long BUCKET_US = 10_000;
 
     private final Stacks stacks;
     private final long intervalMs;
@@ -113,10 +117,22 @@ public final class Profiler {
         private final Map<Frame, String> files = new HashMap<>();
         private final Map<Frame, Integer> lines = new HashMap<>();
         private final Map<List<Integer>, Integer> stacks = new LinkedHashMap<>();
+        // Each stack's samples by the bucket of the trace they were taken in.
+        private final Map<List<Integer>, TreeMap<Long, Integer>> buckets = new HashMap<>();
+        // When the trace started (µs since the epoch): its buckets count from it.
+        private long startMicros;
         private int samples;
         // The collector's runs while it runs; its memory too when it asked for it (null: not measured).
         private Memory.Gc gc;
         private volatile Memory.Window memory;
+
+        Recording() {
+            this(Trace.nowMicros());
+        }
+
+        Recording(long startMicros) {
+            this.startMicros = startMicros;
+        }
 
         void enter(Thread on) {
             thread.set(on);
@@ -146,6 +162,7 @@ public final class Profiler {
     /** Begin recording a trace's stacks, on the thread it is bound to now, and the collector's runs (start in µs). */
     synchronized Recording start(Thread on, long startMicros) {
         Recording recording = start(on);
+        recording.startMicros = startMicros;
         recording.gc = new Memory.Gc(startMicros);
         return recording;
     }
@@ -235,6 +252,7 @@ public final class Profiler {
     private void sample(Recording recording) {
         Thread on = recording.thread.get();
         if (on == null) return;
+        long at = Trace.nowMicros();
         StackTraceElement[] stack;
         try {
             stack = on.getStackTrace();
@@ -245,12 +263,15 @@ public final class Profiler {
         if (stack.length == 0 || recording.thread.get() != on) return;
         synchronized (recording) {
             if (!running.contains(recording)) return;
-            count(recording, stack);
+            count(recording, stack, at);
         }
     }
 
-    /** Count one sample of a stack (innermost call first, as the JVM gives it); past MAX_STACKS, it is "(other)". */
-    void count(Recording recording, StackTraceElement[] stack) {
+    /**
+     * Count one sample of a stack (innermost call first, as the JVM gives it), taken at `atMicros` (µs since the
+     * epoch); past MAX_STACKS, it is "(other)".
+     */
+    void count(Recording recording, StackTraceElement[] stack, long atMicros) {
         List<StackTraceElement> kept = new ArrayList<>(Math.min(stack.length, MAX_DEPTH));
         for (int i = stack.length - 1; i >= 0 && kept.size() < MAX_DEPTH; i--) {
             if (!stack[i].getClassName().startsWith(OWN)) kept.add(stack[i]);
@@ -259,11 +280,12 @@ public final class Profiler {
         recording.samples++;
         List<Integer> keys = new ArrayList<>(kept.size());
         for (StackTraceElement element : kept) keys.add(frame(recording, element));
-        if (recording.stacks.containsKey(keys) || recording.stacks.size() < MAX_STACKS) {
-            recording.stacks.merge(keys, 1, Integer::sum);
-        } else {
-            recording.stacks.merge(List.of(frame(recording, OTHER, null, 0)), 1, Integer::sum);
+        if (!recording.stacks.containsKey(keys) && recording.stacks.size() >= MAX_STACKS) {
+            keys = List.of(frame(recording, OTHER, null, 0));
         }
+        recording.stacks.merge(keys, 1, Integer::sum);
+        long bucket = Math.max(atMicros - recording.startMicros, 0) / BUCKET_US;
+        recording.buckets.computeIfAbsent(keys, k -> new TreeMap<>()).merge(bucket, 1, Integer::sum);
     }
 
     private Integer frame(Recording recording, StackTraceElement element) {
@@ -305,14 +327,19 @@ public final class Profiler {
                     return frames.size() - 1;
                 }));
             }
+            List<List<Long>> at = new ArrayList<>();
+            recording.buckets.getOrDefault(entry.getKey(), new TreeMap<>())
+                    .forEach((bucket, count) -> at.add(List.of(bucket, (long) count)));
             Map<String, Object> stack = new LinkedHashMap<>();
             stack.put("frames", indexes);
             stack.put("count", entry.getValue());
+            stack.put("at", at);
             out.add(stack);
         }
         Map<String, Object> profile = new LinkedHashMap<>();
         profile.put("interval_us", intervalMs * 1000);
         profile.put("samples", recording.samples);
+        profile.put("bucket_us", BUCKET_US);
         profile.put("frames", frames);
         profile.put("stacks", out);
         return profile;

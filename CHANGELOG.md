@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- A trace's profile says when each stack ran: each sample counts in the
+  10 ms of the trace it was taken in (`bucket_us`, a stack's `at`). The
+  console splits a JVM trace's time by them as it does every language's:
+  a query is Database, the code's own time Your code, the framework's or
+  Waiting (a parked thread), and the strip's legend and the Profile
+  tab's bar give the same numbers.
+
 ## 0.13.1 (2026-11-03)
 
 ### Changed
