@@ -94,3 +94,8 @@ tasks.register<Test>("testMicronaut5Integration") {
     shouldRunAfter(tasks.named("testMicronaut5"))
 }
 tasks.check { dependsOn(integrationTest) }
+
+// The auto-configured integration has package-private beans rather than a public API.
+tasks.javadoc {
+    (options as StandardJavadocDocletOptions).memberLevel = JavadocMemberLevel.PACKAGE
+}
