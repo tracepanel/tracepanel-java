@@ -25,7 +25,7 @@ public final class Stacks {
     private static final List<String> LIBRARIES = List.of(
             "java.", "javax.", "jakarta.", "jdk.", "sun.", "com.sun.", "kotlin.", "kotlinx.", "scala.", "groovy.",
             "org.springframework.", "org.hibernate.", "com.zaxxer.", "org.postgresql.", "com.mysql.", "org.mariadb.",
-            "org.h2.", "org.hsqldb.", "org.apache.", "org.eclipse.", "io.netty.", "reactor.", "io.micrometer.",
+            "org.h2.", "org.hsqldb.", "org.apache.", "org.eclipse.", "io.netty.", "io.micronaut.", "reactor.", "io.micrometer.",
             "ch.qos.logback.", "org.slf4j.", "org.thymeleaf.", "com.fasterxml.", "org.jboss.", "net.bytebuddy.",
             "org.junit.", "dev.tracepanel.", "io.opentelemetry.", "io.ktor.", "org.jetbrains.", "com.google.",
             "okhttp3.", "okio.", "io.grpc.", "io.undertow.", "io.vertx.", "org.aspectj.", "org.glassfish.", "org.jooq.",

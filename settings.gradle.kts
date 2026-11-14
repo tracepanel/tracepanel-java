@@ -3,4 +3,4 @@
 // tracepanel-junit runs each test as a trace, failed by what the agent finds in it.
 rootProject.name = "tracepanel-java"
 
-include("tracepanel-core", "tracepanel-spring-boot", "tracepanel-ktor", "tracepanel-junit")
+include("tracepanel-core", "tracepanel-spring-boot", "tracepanel-ktor", "tracepanel-junit", "tracepanel-micronaut")

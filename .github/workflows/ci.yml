@@ -84,11 +84,44 @@ jobs:
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java }}_X64
       - if: matrix.java == '21'
         run: ./gradlew publishToMavenLocal --console=plain
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-reports-java-${{ matrix.java }}
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
+          retention-days: 7
+
+  micronaut5:
+    name: Micronaut 5 on Java 25
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            25
+            21
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew :tracepanel-micronaut:testMicronaut5 :tracepanel-micronaut:testMicronaut5Integration --console=plain -Porg.gradle.java.installations.fromEnv=JAVA_HOME_25_X64
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-reports-micronaut5
+          path: |
+            tracepanel-micronaut/build/reports/tests/**
+            tracepanel-micronaut/build/test-results/**
+          retention-days: 7
 
   # The branch's required check: every Java's tests passed, or the build was skipped.
   check:
     name: Build and test
-    needs: [changes, test]
+    needs: [changes, test, micronaut5]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -96,4 +129,8 @@ jobs:
       - env:
           CHANGES: ${{ needs.changes.result }}
           TEST: ${{ needs.test.result }}
-        run: test "$CHANGES" = success && { test "$TEST" = success || test "$TEST" = skipped; }
+          MICRONAUT: ${{ needs.micronaut5.result }}
+        run: >-
+          test "$CHANGES" = success &&
+          { test "$TEST" = success || test "$TEST" = skipped; } &&
+          { test "$MICRONAUT" = success || test "$MICRONAUT" = skipped; }
