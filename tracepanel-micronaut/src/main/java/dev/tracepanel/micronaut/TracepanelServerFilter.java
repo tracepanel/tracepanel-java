@@ -15,6 +15,9 @@ import io.micronaut.http.HttpHeaders;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MutableHttpResponse;
+import io.micronaut.http.MediaType;
+import io.micronaut.http.server.RouteExecutor;
+import jakarta.inject.Provider;
 import io.micronaut.http.ServerHttpRequest;
 import io.micronaut.http.annotation.Filter;
 import io.micronaut.http.filter.HttpServerFilter;
@@ -43,10 +46,12 @@ final class TracepanelServerFilter implements HttpServerFilter {
     private final Tracepanel tracepanel;
     private final String prefix;
     private final HttpHostResolver hosts;
+    private final Provider<RouteExecutor> routes;
 
-    TracepanelServerFilter(Tracepanel tracepanel, @Value("${micronaut.server.context-path:}") String contextPath, HttpHostResolver hosts) {
+    TracepanelServerFilter(Tracepanel tracepanel, @Value("${micronaut.server.context-path:}") String contextPath, HttpHostResolver hosts, Provider<RouteExecutor> routes) {
         this.tracepanel = tracepanel;
         this.hosts = hosts;
+        this.routes = routes;
         this.prefix = contextPath.replaceAll("/+$", "") + tracepanel.config().prefix();
     }
 
@@ -128,8 +133,10 @@ final class TracepanelServerFilter implements HttpServerFilter {
             if (bytes != null) RequestDetails.body(request.getContentType().map(Object::toString).orElse(""), bytes, true)
                     .forEach((key, value) -> trace.attr("http.request." + key, value));
         }
-        if (response.getContentType().filter(type -> type.getName().equals("text/html")).isEmpty()
-                || response.getHeaders().contains(HttpHeaders.CONTENT_ENCODING)) return;
+        // Netty applies the route's content type after response filters have run.
+        MediaType contentType = response.getContentType().orElseGet(() -> RouteAttributes.getRouteInfo(response)
+                .map(info -> routes.get().resolveDefaultResponseContentType(request, info)).orElse(MediaType.APPLICATION_JSON_TYPE));
+        if (!contentType.getName().equals("text/html") || response.getHeaders().contains(HttpHeaders.CONTENT_ENCODING)) return;
         Object body = response.getBody().orElse(null);
         String html = body instanceof String text ? text
                 : body instanceof byte[] bytes ? new String(bytes, response.getCharacterEncoding()) : null;

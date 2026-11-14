@@ -60,7 +60,8 @@ class FilterTest {
 
     @Test
     void serverRecordsErrorsAndRestoresThreadContext() {
-        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost");
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
         assertThrows(IllegalStateException.class, () -> Flux.from(filter.doFilter(HttpRequest.GET("/fail"), request -> {
             assertNotNull(Tracepanel.current());
             return Mono.error(new IllegalStateException("broken"));
@@ -71,7 +72,8 @@ class FilterTest {
 
     @Test
     void cancellationFinishesTheTraceExactlyOnce() {
-        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost");
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
         var subscription = Flux.from(filter.doFilter(HttpRequest.GET("/cancel"), request -> Mono.never())).subscribe();
         subscription.dispose();
         assertEquals(1, DOCUMENTS.size());
@@ -81,7 +83,8 @@ class FilterTest {
 
     @Test
     void preflightBypassesTracingButOrdinaryOptionsDoesNot() {
-        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost");
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
         Flux.from(filter.doFilter(HttpRequest.OPTIONS("/cors").header("Origin", "https://shop.test")
                 .header("Access-Control-Request-Method", "GET"), request -> Mono.just(HttpResponse.ok()))).blockLast();
         assertTrue(DOCUMENTS.isEmpty());
@@ -119,7 +122,8 @@ class FilterTest {
 
     @Test
     void handledClientErrorsKeepTheirStatusWithoutAnException() {
-        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost");
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
         Flux.from(filter.doFilter(HttpRequest.GET("/invalid"), request -> Mono.just(HttpResponse.unprocessableEntity()))).blockLast();
         Map<String, Object> trace = DOCUMENTS.get(0);
         assertEquals("ok", trace.get("status"));
@@ -128,7 +132,8 @@ class FilterTest {
 
     @Test
     void htmlInjectionPreservesCharsetAndDropsStaleEntityHeaders() {
-        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "/shop/", request -> "http://localhost");
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "/shop/", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
         var response = HttpResponse.ok("<html><head></head><body>Café</body></html>".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))
                 .contentType("text/html; charset=ISO-8859-1").header("ETag", "old").header("Content-Length", "55");
         io.micronaut.http.MutableHttpResponse<?> result;
@@ -149,7 +154,8 @@ class FilterTest {
 
     @Test
     void encodedAndStreamingResponsesStayUnchanged() {
-        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost");
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
         var compressed = HttpResponse.ok("compressed").contentType("text/html").header("Content-Encoding", "gzip");
         assertSame(compressed, Flux.from(filter.doFilter(HttpRequest.GET("/gzip"), request -> Mono.just(compressed))).blockLast());
         assertEquals("compressed", compressed.body());

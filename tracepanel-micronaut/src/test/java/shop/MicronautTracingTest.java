@@ -80,7 +80,7 @@ class MicronautTracingTest implements TestPropertyProvider {
     @Test
     void htmlHasTheBadgeAndTheConsoleDoesNotTraceItself() {
         String page = http.toBlocking().retrieve("/probe/page");
-        assertTrue(page.contains("/__tracepanel__/widget.min.js"));
+        assertTrue(page.contains("/__tracepanel__/widget.min.js"), page);
         String answer = http.toBlocking().retrieve("/__tracepanel__/api/services");
         assertTrue(answer.startsWith("console "));
         String posted = http.toBlocking().retrieve(HttpRequest.POST("/__tracepanel__/api/settings", "{\"theme\":\"dark\"}")

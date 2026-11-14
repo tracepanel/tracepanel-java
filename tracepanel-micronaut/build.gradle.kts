@@ -2,6 +2,8 @@ description = "Tracepanel for Micronaut: request traces, JDBC, declarative HTTP 
 
 val micronaut4 = "4.10.24"
 val micronaut5 = "5.2.6"
+val h2 = "2.5.252"
+val logback = "1.6.6"
 
 dependencies {
     api(project(":tracepanel-core"))
@@ -9,8 +11,10 @@ dependencies {
     compileOnly("io.micronaut:micronaut-http-server")
     compileOnly("io.micronaut:micronaut-http-client-core")
     compileOnly("io.micronaut:micronaut-core-reactive")
+    compileOnly("org.jetbrains:annotations:26.1.0")
     implementation("io.micronaut.reactor:micronaut-reactor:3.9.1")
-    compileOnly("ch.qos.logback:logback-classic:1.5.18")
+    implementation("io.projectreactor:reactor-core:3.7.19")
+    compileOnly("ch.qos.logback:logback-classic:$logback")
     annotationProcessor(platform("io.micronaut.platform:micronaut-platform:$micronaut4"))
     annotationProcessor("io.micronaut:micronaut-inject-java")
 
@@ -22,8 +26,8 @@ dependencies {
     testImplementation("io.micronaut.reactor:micronaut-reactor")
     testImplementation("io.micronaut.sql:micronaut-jdbc-hikari")
     testImplementation("io.projectreactor:reactor-core")
-    testImplementation("com.h2database:h2:2.4.240")
-    testImplementation("ch.qos.logback:logback-classic:1.5.18")
+    testImplementation("com.h2database:h2:$h2")
+    testImplementation("ch.qos.logback:logback-classic:$logback")
     testImplementation(testFixtures(project(":tracepanel-core")))
     testAnnotationProcessor(platform("io.micronaut.platform:micronaut-platform:$micronaut4"))
     testAnnotationProcessor("io.micronaut:micronaut-inject-java")
@@ -42,9 +46,9 @@ val micronaut5Tests = testing.suites.register<JvmTestSuite>("testMicronaut5") {
         implementation("io.micronaut:micronaut-jackson-databind")
         implementation("io.micronaut.reactor:micronaut-reactor")
         implementation("io.micronaut.sql:micronaut-jdbc-hikari")
-        implementation("io.projectreactor:reactor-core")
-        implementation("com.h2database:h2:2.4.240")
-        implementation("ch.qos.logback:logback-classic:1.5.18")
+        implementation("io.projectreactor:reactor-core:3.8.8")
+        implementation("com.h2database:h2:$h2")
+        implementation("ch.qos.logback:logback-classic:$logback")
         implementation(testFixtures(project(":tracepanel-core")))
     }
     targets.all {
@@ -73,7 +77,7 @@ tasks.withType<Test>().configureEach {
 
 // Separate JVMs keep the core's process-wide recorder and fake agent out of unit tests.
 tasks.test { useJUnitPlatform { excludeTags("integration") } }
-val integrationTest by tasks.registering(Test::class) {
+val integrationTest = tasks.register<Test>("integrationTest") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     useJUnitPlatform { includeTags("integration") }

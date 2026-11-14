@@ -84,6 +84,14 @@ jobs:
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java }}_X64
       - if: matrix.java == '21'
         run: ./gradlew publishToMavenLocal --console=plain
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-reports-java-${{ matrix.java }}
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
+          retention-days: 7
 
   micronaut5:
     name: Micronaut 5 on Java 25
@@ -101,6 +109,14 @@ jobs:
             21
       - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew :tracepanel-micronaut:testMicronaut5 :tracepanel-micronaut:testMicronaut5Integration --console=plain -Porg.gradle.java.installations.fromEnv=JAVA_HOME_25_X64
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-reports-micronaut5
+          path: |
+            tracepanel-micronaut/build/reports/tests/**
+            tracepanel-micronaut/build/test-results/**
+          retention-days: 7
 
   # The branch's required check: every Java's tests passed, or the build was skipped.
   check:
