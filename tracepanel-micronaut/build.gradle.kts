@@ -38,6 +38,7 @@ dependencies {
 val micronaut5Tests = testing.suites.register<JvmTestSuite>("testMicronaut5") {
     useJUnitJupiter("6.1.3")
     sources.java.setSrcDirs(listOf("src/test/java"))
+    sources.resources.setSrcDirs(listOf("src/test/resources"))
     dependencies {
         implementation(project())
         implementation(platform("io.micronaut.platform:micronaut-platform:$micronaut5"))
