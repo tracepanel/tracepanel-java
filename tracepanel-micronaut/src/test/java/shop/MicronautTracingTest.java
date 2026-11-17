@@ -52,6 +52,7 @@ class MicronautTracingTest implements TestPropertyProvider {
         assertEquals("book 7 echo", response.body());
         Map<String, Object> trace = FakeAgent.traceAt("/probe/books/7");
         assertEquals("GET /probe/books/{id}", trace.get("name"));
+        assertEquals("ok", trace.get("status"));
         assertTrue(trace.get("spans") instanceof List<?> spans && spans.stream().anyMatch(value ->
                 value instanceof Map<?, ?> span && "sql".equals(span.get("kind"))));
         assertTrue(trace.get("spans") instanceof List<?> spans && spans.stream().anyMatch(value ->

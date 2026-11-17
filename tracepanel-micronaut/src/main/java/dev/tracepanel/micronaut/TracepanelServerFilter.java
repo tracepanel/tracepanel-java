@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -98,11 +99,15 @@ final class TracepanelServerFilter implements HttpServerFilter {
                 Profiler.reason(profile, cookies, attrs.containsKey("w3c.parent_span_id")));
         Tracepanel.bind(previous);
         PropagatedContext context = PropagatedContext.getOrEmpty().plus(new TraceContext(trace));
+        AtomicBoolean answered = new AtomicBoolean();
         return ReactivePropagation.propagate(context, Flux.defer(() -> {
             try (PropagatedContext.Scope ignored = context.propagate()) {
                 return Flux.from(chain.proceed(request));
             }
-        }).doOnNext(response -> response(request, response, trace))
+        }).doOnNext(response -> {
+                    answered.set(true);
+                    response(request, response, trace);
+                })
                 .doOnError(error -> {
                     trace.failed();
                     trace.attr("http.status_code", 500);
@@ -110,7 +115,8 @@ final class TracepanelServerFilter implements HttpServerFilter {
                 })
                 .doFinally(signal -> {
                     try (PropagatedContext.Scope ignored = context.propagate()) {
-                        if (signal == SignalType.CANCEL) trace.failed();
+                        // Micronaut cancels the chain once it has the response: only a request cut before its answer failed.
+                        if (signal == SignalType.CANCEL && !answered.get()) trace.failed();
                         route(request, trace);
                         tracepanel.finish(trace);
                     }

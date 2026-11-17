@@ -71,6 +71,17 @@ class FilterTest {
     }
 
     @Test
+    void theCancelAfterTheResponseLeavesTheTraceOk() {
+        TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
+                () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
+        // As Micronaut takes the response: the first one, then it cancels the rest of the chain.
+        Mono.from(filter.doFilter(HttpRequest.GET("/ok"), request -> Flux.just(HttpResponse.ok(), HttpResponse.ok())))
+                .block();
+        assertEquals(1, DOCUMENTS.size());
+        assertEquals("ok", DOCUMENTS.get(0).get("status"));
+    }
+
+    @Test
     void cancellationFinishesTheTraceExactlyOnce() {
         TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
                 () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
