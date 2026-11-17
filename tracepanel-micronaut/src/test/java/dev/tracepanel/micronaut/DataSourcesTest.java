@@ -10,6 +10,7 @@ import dev.tracepanel.core.Tracepanel;
 import io.micronaut.context.ApplicationContext;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
+import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.inject.qualifiers.Qualifiers;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,7 @@ class DataSourcesTest {
                 assertEquals(2, queries);
                 TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "", request -> "http://localhost",
                 () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
-                Flux.from(filter.doFilter(HttpRequest.GET("/reactive"), request -> Mono.<io.micronaut.http.MutableHttpResponse<?>>fromCallable(() -> {
+                Flux.from(filter.doFilter(HttpRequest.GET("/reactive"), request -> Mono.<MutableHttpResponse<?>>fromCallable(() -> {
                     assertNotNull(Tracepanel.current());
                     DataSource pool = context.getBean(DataSource.class);
                     try (var connection = pool.getConnection(); var query = connection.prepareStatement("SELECT 2");

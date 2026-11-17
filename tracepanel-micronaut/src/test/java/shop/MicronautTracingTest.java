@@ -1,6 +1,8 @@
 package shop;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.tracepanel.testing.FakeAgent;
 import io.micronaut.context.annotation.Property;
@@ -17,6 +19,7 @@ import io.micronaut.test.support.TestPropertyProvider;
 import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
@@ -48,34 +51,49 @@ class MicronautTracingTest implements TestPropertyProvider {
     @Test
     void routeHasSqlClientCallLogsAndTraceHeaders() throws Exception {
         var response = http.toBlocking().exchange(HttpRequest.GET("/probe/books/7"), String.class);
-        assertNotNull(response.header("Tracepanel-Id"));
-        assertEquals("book 7 echo", response.body());
         Map<String, Object> trace = FakeAgent.traceAt("/probe/books/7");
+        Map<String, Object> echoed = FakeAgent.traceAt("/probe/echo");
+        Map<?, ?> client = spans(trace).get(2);
+
+        assertEquals("book 7 echo", response.body());
+        assertEquals(trace.get("id"), response.header("Tracepanel-Id"));
+
         assertEquals("GET /probe/books/{id}", trace.get("name"));
         assertEquals("ok", trace.get("status"));
-        assertTrue(trace.get("spans") instanceof List<?> spans && spans.stream().anyMatch(value ->
-                value instanceof Map<?, ?> span && "sql".equals(span.get("kind"))));
-        assertTrue(trace.get("spans") instanceof List<?> spans && spans.stream().anyMatch(value ->
-                value instanceof Map<?, ?> span && "http.client".equals(span.get("kind"))));
-        assertTrue(trace.get("logs") instanceof List<?> logs && !logs.isEmpty());
-        Map<String, Object> echoed = FakeAgent.traceAt("/probe/echo");
-        assertTrue(echoed.get("attrs") instanceof Map<?, ?> attrs && attrs.containsKey("w3c.parent_span_id"));
+        assertEquals(List.of("http GET /probe/books/{id}", "sql SELECT 1", "http.client GET /probe/echo 200"),
+                spans(trace).stream().map(MicronautTracingTest::said).toList());
+        assertEquals(List.of("info loaded book 7"), ((List<?>) trace.get("logs")).stream()
+                .map(value -> (Map<?, ?>) value).map(log -> log.get("level") + " " + log.get("message")).toList());
+
+        // The call carried the trace on: the echo's trace names the client span as its parent.
+        assertEquals(((Map<?, ?>) client.get("attrs")).get("w3c.span_id"),
+                ((Map<?, ?>) echoed.get("attrs")).get("w3c.parent_span_id"));
     }
 
     @Test
     void reactiveControllerKeepsItsTraceAfterSwitchingThreads() throws Exception {
         assertEquals("reactive", http.toBlocking().retrieve("/probe/reactive/8"));
         Map<String, Object> trace = FakeAgent.traceAt("/probe/reactive/8");
+
         assertEquals("GET /probe/reactive/{id}", trace.get("name"));
-        assertTrue(trace.get("spans") instanceof List<?> spans && spans.size() > 1);
+        assertEquals(List.of("http GET /probe/reactive/{id}", "sql SELECT 1"),
+                spans(trace).stream().map(MicronautTracingTest::said).toList());
     }
 
     @Test
     void frameworkErrorResponseKeepsTheException() throws Exception {
         assertThrows(HttpClientResponseException.class, () -> http.toBlocking().retrieve("/probe/failure"));
         Map<String, Object> trace = FakeAgent.traceAt("/probe/failure");
+        Map<?, ?> error = (Map<?, ?>) ((List<?>) trace.get("errors")).get(0);
+        // The app's frame nearest the throw: the controller's method, not the bean definition Micronaut compiled.
+        Map<?, ?> own = ((List<?>) error.get("frames")).stream().map(value -> (Map<?, ?>) value)
+                .filter(frame -> Boolean.TRUE.equals(frame.get("in_app"))).findFirst().orElseThrow();
+
         assertEquals("error", trace.get("status"));
-        assertTrue(trace.get("errors") instanceof List<?> errors && !errors.isEmpty());
+        assertEquals(List.of("java.lang.IllegalStateException", "broken controller", false),
+                List.of(error.get("type"), error.get("message"), error.get("handled")));
+        assertEquals(List.of("shop.MicronautTracingTest$ProbeController", "failure"),
+                List.of(own.get("module"), own.get("function")));
     }
 
     @Test
@@ -87,8 +105,23 @@ class MicronautTracingTest implements TestPropertyProvider {
         String posted = http.toBlocking().retrieve(HttpRequest.POST("/__tracepanel__/api/settings", "{\"theme\":\"dark\"}")
                 .contentType("application/json"));
         assertTrue(posted.startsWith("console "));
-        assertTrue(FakeAgent.CONSOLE_CALLS.stream().anyMatch(call -> call.equals("POST /api/settings {\"theme\":\"dark\"}")));
+        assertTrue(FakeAgent.CONSOLE_CALLS.contains("POST /api/settings {\"theme\":\"dark\"}"));
         assertTrue(FakeAgent.TRACES.stream().noneMatch(trace -> String.valueOf(trace.get("name")).contains("__tracepanel__")));
+    }
+
+    private static List<Map<?, ?>> spans(Map<String, Object> trace) {
+        return ((List<?>) trace.get("spans")).stream().<Map<?, ?>>map(value -> (Map<?, ?>) value).toList();
+    }
+
+    /** A span as the test reads it: its kind and what it is (a statement, a call's path and status). */
+    private static String said(Map<?, ?> span) {
+        Map<?, ?> attrs = (Map<?, ?>) span.get("attrs");
+        return span.get("kind") + " " + switch (String.valueOf(span.get("kind"))) {
+            case "sql" -> attrs.get("db.statement");
+            case "http.client" -> attrs.get("http.request.method") + " " + URI.create(String.valueOf(attrs.get("url.full")))
+                    .getPath() + " " + attrs.get("http.response.status_code");
+            default -> span.get("name");
+        };
     }
 
     @Client("/")

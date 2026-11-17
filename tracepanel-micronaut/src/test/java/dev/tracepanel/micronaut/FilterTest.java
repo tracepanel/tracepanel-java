@@ -1,6 +1,12 @@
 package dev.tracepanel.micronaut;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.tracepanel.core.Config;
 import dev.tracepanel.core.Trace;
@@ -9,6 +15,8 @@ import io.micronaut.core.async.propagation.ReactivePropagation;
 import io.micronaut.core.propagation.PropagatedContext;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
+import io.micronaut.http.MutableHttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -118,6 +126,7 @@ class FilterTest {
         recorder.finish(trace);
         assertEquals(3, trace.spans().size());
     }
+
     @Test
     void clientRecordsSynchronousFailuresAndCancellationOnce() {
         Trace trace = recorder.begin("http", "outgoing failures", Map.of());
@@ -145,9 +154,9 @@ class FilterTest {
     void htmlInjectionPreservesCharsetAndDropsStaleEntityHeaders() {
         TracepanelServerFilter filter = new TracepanelServerFilter(recorder, "/shop/", request -> "http://localhost",
                 () -> { throw new AssertionError("No route lookup expected for a synthetic response"); });
-        var response = HttpResponse.ok("<html><head></head><body>Café</body></html>".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))
+        var response = HttpResponse.ok("<html><head></head><body>Café</body></html>".getBytes(StandardCharsets.ISO_8859_1))
                 .contentType("text/html; charset=ISO-8859-1").header("ETag", "old").header("Content-Length", "55");
-        io.micronaut.http.MutableHttpResponse<?> result;
+        MutableHttpResponse<?> result;
         Tracepanel.tests(null); // The core disables badge injection while a test recorder is installed.
         try {
             result = Flux.from(filter.doFilter(HttpRequest.GET("/shop/page"), request -> Mono.just(response))).blockLast();
@@ -156,9 +165,9 @@ class FilterTest {
         }
         assertNotNull(result);
         assertTrue(result.getBody().orElseThrow() instanceof byte[] bytes
-                && new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).contains("Café"));
+                && new String(bytes, StandardCharsets.ISO_8859_1).contains("Café"));
         assertTrue(result.getBody().orElseThrow() instanceof byte[] bytes
-                && new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).contains("/shop/__tracepanel__/widget.min.js"));
+                && new String(bytes, StandardCharsets.ISO_8859_1).contains("/shop/__tracepanel__/widget.min.js"));
         assertFalse(result.getHeaders().contains("ETag"));
         assertFalse(result.getHeaders().contains("Content-Length"));
     }
