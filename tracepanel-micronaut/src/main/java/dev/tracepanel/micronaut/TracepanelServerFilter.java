@@ -14,19 +14,20 @@ import io.micronaut.core.propagation.PropagatedContext;
 import io.micronaut.http.HttpHeaders;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
-import io.micronaut.http.MutableHttpResponse;
+import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MediaType;
-import io.micronaut.http.server.RouteExecutor;
-import jakarta.inject.Provider;
+import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.http.ServerHttpRequest;
 import io.micronaut.http.annotation.Filter;
 import io.micronaut.http.filter.HttpServerFilter;
 import io.micronaut.http.filter.ServerFilterChain;
 import io.micronaut.http.filter.ServerFilterPhase;
+import io.micronaut.http.server.RouteExecutor;
 import io.micronaut.http.server.util.HttpHostResolver;
 import io.micronaut.web.router.MethodBasedRouteMatch;
 import io.micronaut.web.router.RouteAttributes;
 import io.micronaut.web.router.UriRouteMatch;
+import jakarta.inject.Provider;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -40,6 +41,11 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
 import reactor.core.scheduler.Schedulers;
 
+/**
+ * Each request a trace, named by its route (GET /books/{id}) and the controller method that ran it, its time and
+ * status; the badge on the app's HTML pages; the console under its prefix (/__tracepanel__/), answered by the agent.
+ * First of the filters: the trace holds what the others and the route do.
+ */
 @Filter("/**")
 @Requires(classes = HttpServerFilter.class, condition = TracepanelEnabled.class)
 final class TracepanelServerFilter implements HttpServerFilter {
@@ -48,7 +54,8 @@ final class TracepanelServerFilter implements HttpServerFilter {
     private final HttpHostResolver hosts;
     private final Provider<RouteExecutor> routes;
 
-    TracepanelServerFilter(Tracepanel tracepanel, @Value("${micronaut.server.context-path:}") String contextPath, HttpHostResolver hosts, Provider<RouteExecutor> routes) {
+    TracepanelServerFilter(Tracepanel tracepanel, @Value("${micronaut.server.context-path:}") String contextPath,
+            HttpHostResolver hosts, Provider<RouteExecutor> routes) {
         this.tracepanel = tracepanel;
         this.hosts = hosts;
         this.routes = routes;
@@ -174,7 +181,7 @@ final class TracepanelServerFilter implements HttpServerFilter {
             Console.Answer answer = Console.forward(tracepanel, request.getMethodName(),
                     path + (query == null ? "" : "?" + query), request.getContentType().map(Object::toString).orElse(null),
                     body, address);
-            MutableHttpResponse<byte[]> response = HttpResponse.status(io.micronaut.http.HttpStatus.valueOf(answer.status()))
+            MutableHttpResponse<byte[]> response = HttpResponse.status(HttpStatus.valueOf(answer.status()))
                     .body(answer.body()).contentType(answer.contentType());
             answer.headers().forEach(response::header);
             return response;

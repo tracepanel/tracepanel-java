@@ -9,6 +9,10 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * The app's DataSources, each wrapped as it is made: SQL, transactions and EXPLAIN on its connections. A bean whose
+ * type is a pool class can't take the wrapper: it stays as it is, and the log says how to have it recorded.
+ */
 @Singleton
 @Requires(condition = TracepanelEnabled.class)
 final class DataSources implements BeanCreatedEventListener<DataSource> {
