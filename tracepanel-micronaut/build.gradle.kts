@@ -15,6 +15,7 @@ dependencies {
     // Reactor comes with Micronaut's Netty server and HTTP client, of the app's own version.
     compileOnly("io.projectreactor:reactor-core")
     compileOnly("ch.qos.logback:logback-classic:$logback")
+    compileOnly("org.apache.logging.log4j:log4j-core:2.24.3")
     annotationProcessor(platform("io.micronaut.platform:micronaut-platform:$micronaut4"))
     annotationProcessor("io.micronaut:micronaut-inject-java")
 
