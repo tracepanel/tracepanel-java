@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `tracepanel-micronaut`, for Micronaut 4.10 and 5: each request, SQL and
+  transactions, calls through its HTTP clients, logs, errors and the console.
+
 ## 0.16.0 (2026-11-10)
 
 ### Changed

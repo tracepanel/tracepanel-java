@@ -122,12 +122,13 @@ class CoreTest {
         assertTrue(!stacks.inApp("com.shopping.Other"));
         assertTrue(!stacks.inApp("org.springframework.web.Servlet"));
         // Made at runtime in the app's package: a lazy relation's proxy (Hibernate 6 names it Author$HibernateProxy),
-        // a Spring subclass, a lambda, an interface's proxy.
+        // a Spring subclass, a lambda, an interface's proxy, Micronaut's compiled bean definitions.
         assertTrue(!stacks.inApp("com.shop.Author$HibernateProxy$Xyz"));
         assertTrue(!stacks.inApp("com.shop.Author$HibernateProxy"));
         assertTrue(!stacks.inApp("com.shop.BookService$$SpringCGLIB$$0"));
         assertTrue(!stacks.inApp("com.shop.BookService$$Lambda/0x000001f001234567"));
         assertTrue(!stacks.inApp("com.shop.$Proxy172"));
+        assertTrue(!stacks.inApp("com.shop.$BookController$Definition$Exec"));
         assertTrue(stacks.inApp("com.shop.BookService$Page"));
         assertEquals("com/shop/BookService.java:42 in list", stacks.where("com.shop.BookService", "BookService.java", 42, "list"));
     }

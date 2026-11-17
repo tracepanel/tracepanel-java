@@ -25,7 +25,7 @@ public final class Stacks {
     private static final List<String> LIBRARIES = List.of(
             "java.", "javax.", "jakarta.", "jdk.", "sun.", "com.sun.", "kotlin.", "kotlinx.", "scala.", "groovy.",
             "org.springframework.", "org.hibernate.", "com.zaxxer.", "org.postgresql.", "com.mysql.", "org.mariadb.",
-            "org.h2.", "org.hsqldb.", "org.apache.", "org.eclipse.", "io.netty.", "reactor.", "io.micrometer.",
+            "org.h2.", "org.hsqldb.", "org.apache.", "org.eclipse.", "io.netty.", "io.micronaut.", "reactor.", "io.micrometer.",
             "ch.qos.logback.", "org.slf4j.", "org.thymeleaf.", "com.fasterxml.", "org.jboss.", "net.bytebuddy.",
             "org.junit.", "dev.tracepanel.", "io.opentelemetry.", "io.ktor.", "org.jetbrains.", "com.google.",
             "okhttp3.", "okio.", "io.grpc.", "io.undertow.", "io.vertx.", "org.aspectj.", "org.glassfish.", "org.jooq.",
@@ -80,12 +80,13 @@ public final class Stacks {
     /**
      * Classes made at runtime in the app's packages: Hibernate's lazy proxies (Author$HibernateProxy, Hibernate 6's
      * name, or Author$HibernateProxy$…), Spring's CGLIB subclasses (…$$SpringCGLIB$$0), lambdas (…$$Lambda/0x…),
-     * ByteBuddy's, and the JDK's interface proxies ($Proxy172). Their frames have no line of the app's to point at.
+     * ByteBuddy's, the JDK's interface proxies ($Proxy172), and what Micronaut generates as it compiles
+     * ($BookController$Definition$Exec). Their frames have no line of the app's to point at.
      */
     private static boolean generated(String className) {
         String simple = className.substring(className.lastIndexOf('.') + 1);
         return className.contains("$$") || className.contains("$HibernateProxy") || className.contains("$ByteBuddy$")
-                || simple.startsWith("$Proxy");
+                || simple.startsWith("$");
     }
 
     /** The app's frame nearest to the call being made now, as "path:line in method", or null when none is the app's. */
