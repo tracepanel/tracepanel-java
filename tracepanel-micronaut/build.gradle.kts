@@ -12,8 +12,8 @@ dependencies {
     compileOnly("io.micronaut:micronaut-http-client-core")
     compileOnly("io.micronaut:micronaut-core-reactive")
     compileOnly("org.jetbrains:annotations:26.1.0")
-    implementation("io.micronaut.reactor:micronaut-reactor:3.9.1")
-    implementation("io.projectreactor:reactor-core:3.7.19")
+    // Reactor comes with Micronaut's Netty server and HTTP client, of the app's own version.
+    compileOnly("io.projectreactor:reactor-core")
     compileOnly("ch.qos.logback:logback-classic:$logback")
     annotationProcessor(platform("io.micronaut.platform:micronaut-platform:$micronaut4"))
     annotationProcessor("io.micronaut:micronaut-inject-java")
