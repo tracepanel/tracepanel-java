@@ -4,6 +4,7 @@ import dev.tracepanel.core.Jdbc;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.event.BeanCreatedEvent;
 import io.micronaut.context.event.BeanCreatedEventListener;
+import io.micronaut.core.order.Ordered;
 import jakarta.inject.Singleton;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
@@ -15,8 +16,15 @@ import org.slf4j.LoggerFactory;
  */
 @Singleton
 @Requires(condition = TracepanelEnabled.class)
-final class DataSources implements BeanCreatedEventListener<DataSource> {
+final class DataSources implements BeanCreatedEventListener<DataSource>, Ordered {
     private static final Logger LOG = LoggerFactory.getLogger(DataSources.class);
+
+    // First: the pool itself is wrapped, and Micronaut Data's contextual DataSource goes over it. Over that proxy, its
+    // transaction manager would hold one connection and the proxy look for another (NoConnectionException).
+    @Override
+    public int getOrder() {
+        return Ordered.HIGHEST_PRECEDENCE;
+    }
 
     @Override
     public DataSource onCreated(BeanCreatedEvent<DataSource> event) {

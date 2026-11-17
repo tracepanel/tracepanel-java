@@ -94,7 +94,34 @@ tasks.register<Test>("testMicronaut5Integration") {
     environment("TRACEPANEL_AGENT", "auto")
     shouldRunAfter(tasks.named("testMicronaut5"))
 }
-tasks.check { dependsOn(integrationTest) }
+// Micronaut Data makes the app's DataSource transaction-aware: its own classpath, with the SDK's wrapper under it.
+val micronautDataTests = testing.suites.register<JvmTestSuite>("testMicronautData") {
+    useJUnitJupiter("6.1.3")
+    dependencies {
+        implementation(project())
+        implementation(platform("io.micronaut.platform:micronaut-platform:$micronaut4"))
+        implementation("io.micronaut.test:micronaut-test-junit5")
+        implementation("io.micronaut:micronaut-http-server-netty")
+        implementation("io.micronaut:micronaut-http-client")
+        implementation("io.micronaut:micronaut-jackson-databind")
+        implementation("io.micronaut.sql:micronaut-jdbc-hikari")
+        implementation("io.micronaut.data:micronaut-data-tx-jdbc")
+        implementation("ch.qos.logback:logback-classic:$logback")
+        implementation("com.h2database:h2:$h2")
+        implementation(testFixtures(project(":tracepanel-core")))
+    }
+    targets.all {
+        testTask.configure {
+            environment("TRACEPANEL_AGENT", "auto")
+            shouldRunAfter(integrationTest)
+        }
+    }
+}
+dependencies {
+    "testMicronautDataAnnotationProcessor"(platform("io.micronaut.platform:micronaut-platform:$micronaut4"))
+    "testMicronautDataAnnotationProcessor"("io.micronaut:micronaut-inject-java")
+}
+tasks.check { dependsOn(integrationTest, micronautDataTests) }
 
 // The auto-configured integration has package-private beans rather than a public API.
 tasks.javadoc {
