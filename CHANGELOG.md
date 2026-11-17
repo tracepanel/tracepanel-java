@@ -4,12 +4,8 @@
 
 ### Added
 
-- `tracepanel-micronaut` for Micronaut 4 and 5: route-named request traces,
-  JDBC statements and transactions, declarative HTTP clients, Logback,
-  request principals, the badge and the console. The SDK starts in dev,
-  development or local environments, or with `TRACEPANEL_ENABLED=1`.
-- A Micronaut 5 test suite on Java 25 in CI. The module still compiles for
-  Java 17 for Micronaut 4 applications.
+- `tracepanel-micronaut`, for Micronaut 4.10 and 5: each request, SQL and
+  transactions, calls through its HTTP clients, logs, errors and the console.
 
 ## 0.16.0 (2026-11-10)
 

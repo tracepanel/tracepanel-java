@@ -4,12 +4,12 @@
 [![Maven Central](https://img.shields.io/maven-central/v/dev.tracepanel/tracepanel-core)](https://central.sonatype.com/namespace/dev.tracepanel)
 [![Java](https://img.shields.io/badge/java-17%2B-blue)](https://github.com/tracepanel/tracepanel-java#tracepanel-for-java)
 
-**See what your Spring Boot, Micronaut or Ktor app is doing.** Tracepanel records
-each request, `@Async` task, scheduled job and message of your app, in Java or
-Kotlin, with its SQL queries, Redis and MongoDB commands, outgoing HTTP calls,
-logs and errors. It points out N+1 queries, duplicates, slow SQL and long
-transactions, and names the line of code to fix. You read it in a panel on
-your pages and in a console.
+**See what your Spring Boot, Micronaut or Ktor app is really doing.**
+Tracepanel records each request, `@Async` task, scheduled job and message of
+your app, in Java or Kotlin, with its SQL queries, Redis and MongoDB commands,
+outgoing HTTP calls, logs and errors. It points out N+1 queries, duplicates,
+slow SQL and long transactions, and names the line of code to fix. You read it
+in a panel on your pages and in a console.
 
 It runs while you develop, and everything stays on your machine.
 
@@ -22,11 +22,11 @@ It runs while you develop, and everything stays on your machine.
 | | Supported |
 | --- | --- |
 | **Java** | 17 and later, apps in Java or Kotlin. |
-| **Frameworks** | Spring Boot 3.5 and 4 with Spring MVC, Kotlin suspend functions, `Callable` and `DeferredResult` handlers included. Ktor 3. Micronaut 4.10 and 5 with Netty and declarative HTTP clients. Micronaut 5 requires Java 25. WebFlux apps aren't supported yet. |
+| **Frameworks** | Spring Boot 3.5 and 4 with Spring MVC, Kotlin suspend functions, `Callable` and `DeferredResult` handlers included. Ktor 3. Micronaut 4.10 and 5 (on Java 25). WebFlux apps aren't supported yet. |
 | **Databases** | SQL through JDBC, whatever runs it: Spring Data JPA, Hibernate, `JdbcTemplate`, jOOQ, Exposed. Transactions. EXPLAIN on PostgreSQL, MySQL, H2 and SQLite of a SELECT or a `WITH … SELECT` that changes no data (ANALYZE rolled back). |
 | **Redis and MongoDB** | Lettuce (Spring Data Redis, the cache) and Spring Data MongoDB, with their own N+1 and duplicates. |
 | **Messaging** | Kafka and RabbitMQ: what a `KafkaTemplate` or a `RabbitTemplate` sends, and each message a `@KafkaListener` or `@RabbitListener` receives as a trace of its own, linked to the one that sent it. |
-| **HTTP clients** | `RestClient`, `RestTemplate`, `WebClient` and the JDK's `HttpClient`, each call with a `traceparent`. Ktor's client through `TracepanelClient`. Micronaut declarative `@Client` calls. |
+| **HTTP clients** | `RestClient`, `RestTemplate`, `WebClient` and the JDK's `HttpClient`, each call with a `traceparent`. Ktor's client through `TracepanelClient`. Micronaut's clients, `@Client` interfaces included. |
 | **Background work** | `@Async` methods as tasks, linked to the request that queued them; `@Scheduled` methods, `CommandLineRunner`s and `ApplicationRunner`s as jobs; the tasks in flight listed live. |
 | **Logs** | Logback and Log4j 2, each record on the request or task that made it, with its line, MDC and exception. |
 | **Errors** | Thrown in a handler, with your frames and the source around them. |
@@ -98,11 +98,8 @@ off.
 
 ### Micronaut
 
-The new `tracepanel-micronaut` module is available from this checkout. It has
-not been published yet. See the [Micronaut store example](https://github.com/tracepanel/tracepanel-examples/tree/main/micronaut-app)
-for a composite build with the local SDK.
-
-With the Micronaut Gradle plugin, add the module for development only:
+Add the dependency for development only. Micronaut finds Tracepanel's beans
+by itself: each request, your DataSources and your HTTP clients.
 
 ```kotlin
 dependencies {
@@ -110,15 +107,10 @@ dependencies {
 }
 ```
 
-Use your app's Micronaut platform BOM so its Reactor integration matches
-its framework version. Run with `micronaut.environments=dev`, for example
-`MICRONAUT_ENVIRONMENTS=dev ./gradlew run`. The SDK also starts in the
-`development` and `local` environments. `TRACEPANEL_ENABLED=1` enables it
-in another environment. `TRACEPANEL_ENABLED=0` disables it in every environment.
-
-Micronaut finds the SDK's beans without application code. Open an HTML page
-for the badge, or `/__tracepanel__/` for the console. Micronaut 4 uses the
-SDK's Java 17 baseline. Micronaut 5 requires Java 25.
+Tracepanel is on in a `dev`, `development` or `local` environment
+(`MICRONAUT_ENVIRONMENTS=dev ./gradlew run`), or with
+`TRACEPANEL_ENABLED=1`. The console is at `/__tracepanel__/` on your app.
+Micronaut 4.10 runs on Java 17, Micronaut 5 on Java 25.
 
 ### Ktor
 
@@ -178,26 +170,12 @@ fix:
 
 ### Micronaut
 
-- Each request, named by its matched route and controller method.
-- JDBC statements and transactions through `DataSource` beans, including
-  Micronaut Hikari pools and `JdbcTemplate`.
-- Declarative `@Client` calls, with W3C `traceparent` and profile headers.
-- Logback records and controller errors on the current trace.
-- A user set through Micronaut's request principal.
-- Context across Micronaut's blocking executors and Reactor publishers.
-- The console, response headers, and the badge on HTML held as a `String`
-  or `byte[]`. Streaming responses and static file bodies are not buffered
-  for badge injection.
-
-Declare custom data source factory return types as `DataSource`. A bean
-exposed as a concrete pool class cannot accept the SDK's interface wrapper;
-the SDK leaves it unchanged and logs a warning. Request capture records
-headers, query parameters and cookies. It captures an already decoded
-`String` or `byte[]` body, without reading application request streams.
-
-Redis, messaging, scheduled jobs and detached application tasks are outside
-this module's current scope. The Spring integrations listed above do not imply
-Micronaut support for those APIs.
+- Each request, named by its route (`GET /books/{id}`) and its controller
+  method, on Micronaut's executors and, with `micronaut-reactor`, Reactor's.
+- SQL and transactions through your `DataSource` beans, Micronaut Data's
+  `@Transactional` included, and calls through its HTTP clients.
+- Logs and errors as in Spring Boot, and the user from the request's
+  principal.
 
 ### Ktor
 
@@ -486,15 +464,12 @@ the same in every framework, under
 ./gradlew check
 ```
 
-It runs the tests on Spring Boot 4 and on 3.5, Ktor and Micronaut 4.
-With Java 25 installed, test the same module against Micronaut 5:
+It runs the tests on Spring Boot 4 and on 3.5, on Ktor, and on Micronaut 4
+with and without Micronaut Data. Micronaut 5's need Java 25:
 
 ```bash
 ./gradlew :tracepanel-micronaut:testMicronaut5 :tracepanel-micronaut:testMicronaut5Integration
 ```
-
-CI runs both Micronaut versions. Integration tests use a local fake agent
-and run in a separate JVM from unit tests.
 
 The tests of MongoDB, Redis, Kafka and RabbitMQ need a server of each:
 `TEST_MONGODB_URI=mongodb://127.0.0.1:27017/test`, `TEST_REDIS_PORT=6379`,
@@ -507,8 +482,9 @@ writes the checksums of that version's downloads.
 `tracepanel-core` records traces and talks to the agent, with no framework
 and no dependencies. `tracepanel-spring-boot` is the Spring Boot
 integration, `tracepanel-micronaut` the Micronaut one, `tracepanel-ktor` the
-Ktor one, and `tracepanel-junit` the JUnit extension. The extension's tests with the real agent download it, as
-a project does, unless `TEST_AGENT_BIN` names one.
+Ktor one, and `tracepanel-junit` the JUnit extension. The extension's tests
+with the real agent download it, as a project does, unless `TEST_AGENT_BIN`
+names one.
 
 ## License
 
