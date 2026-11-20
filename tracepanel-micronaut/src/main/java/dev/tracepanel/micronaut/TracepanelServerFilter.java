@@ -186,7 +186,7 @@ final class TracepanelServerFilter implements HttpServerFilter {
             String address = remote.getAddress() == null ? remote.getHostString() : remote.getAddress().getHostAddress();
             Console.Answer answer = Console.forward(tracepanel, request.getMethodName(),
                     path + (query == null ? "" : "?" + query), request.getContentType().map(Object::toString).orElse(null),
-                    body, address);
+                    body, address, request.getHeaders().get("Accept"));
             MutableHttpResponse<byte[]> response = HttpResponse.status(HttpStatus.valueOf(answer.status()))
                     .body(answer.body()).contentType(answer.contentType());
             answer.headers().forEach(response::header);

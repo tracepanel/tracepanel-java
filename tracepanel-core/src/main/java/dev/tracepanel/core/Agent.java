@@ -31,6 +31,8 @@ public final class Agent {
     private final Map<String, String> env;
     private final AgentDownload download;
     private long failedAt = Long.MIN_VALUE / 2;
+    /** The last start found no binary: what the console's page says then. */
+    private volatile boolean noBinary;
 
     public Agent(Path store, Map<String, String> env) {
         this.store = store;
@@ -87,6 +89,45 @@ public final class Agent {
     }
 
     /**
+     * What keeps the project's console from answering, as far as this process can tell: what the console's 503 says
+     * (Console), in the words the other SDKs use.
+     */
+    public Console.NoConsole noConsole() {
+        String configured = env.get("TRACEPANEL_CONSOLE_URL");
+        if (configured != null && !configured.isBlank()) {
+            return new Console.NoConsole("The console doesn't answer", "No console answers at " + configured
+                    + " (TRACEPANEL_CONSOLE_URL). Start the agent there with --serve, or correct the address.");
+        }
+        String named = env.get("TRACEPANEL_AGENT");
+        if ("off".equals(named)) {
+            return new Console.NoConsole("Tracepanel's agent is off", "Tracepanel's agent is off (TRACEPANEL_AGENT=off): traces"
+                    + " aren't kept and there is no console. Unset TRACEPANEL_AGENT to have the app start it.");
+        }
+        if (!autoStart()) {
+            return new Console.NoConsole("No console for the named agent", "The agent named in TRACEPANEL_AGENT (" + named
+                    + ") serves no console here. Start it with --serve, and set TRACEPANEL_CONSOLE_URL to its console's address.");
+        }
+        if (answers(address())) {
+            // The agent writes its console's address before its own: one that answers without a console was started so.
+            return new Console.NoConsole("Tracepanel's agent runs without its console", "The project's agent runs without its"
+                    + " console (it was started without --serve). Stop it: the next request starts one with its console. Store: "
+                    + store + ".");
+        }
+        String explicit = env.get("TRACEPANEL_AGENT_BIN");
+        if (explicit != null && !explicit.isBlank() && !Files.isRegularFile(Path.of(explicit))) {
+            return new Console.NoConsole("No tracepanel-agent to start", "TRACEPANEL_AGENT_BIN names " + explicit
+                    + ", which isn't there. Set it to the tracepanel-agent binary's path.");
+        }
+        if (noBinary) {
+            return new Console.NoConsole("No tracepanel-agent to start", "No tracepanel-agent binary to start: set"
+                    + " TRACEPANEL_AGENT_BIN to the agent's path, or put tracepanel-agent on the PATH (the SDK downloads its"
+                    + " own unless it is offline).");
+        }
+        return new Console.NoConsole("Tracepanel's agent didn't start", "Tracepanel's agent didn't start: "
+                + store.resolve("agent.log") + " says why. It is tried again within 30 seconds.");
+    }
+
+    /**
      * A socket connected to the agent's address, `unix:/path` or `tcp:host:port` (a channel for the former); null for
      * an address of neither kind.
      */
@@ -132,6 +173,7 @@ public final class Agent {
 
     private boolean start() {
         String binary = binary();
+        noBinary = binary == null;
         if (binary == null) {
             warn("no tracepanel-agent: set TRACEPANEL_AGENT_BIN, or put it on the PATH");
             return false;
