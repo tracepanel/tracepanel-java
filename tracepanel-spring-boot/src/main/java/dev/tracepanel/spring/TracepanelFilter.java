@@ -293,7 +293,7 @@ final class TracepanelFilter extends OncePerRequestFilter {
             if (body != null && body.length > Console.MAX_BODY) body = null;
         }
         Console.Answer answer = Console.forward(tracepanel, request.getMethod(), path + (query == null ? "" : "?" + query),
-                request.getContentType(), body, request.getRemoteAddr());
+                request.getContentType(), body, request.getRemoteAddr(), request.getHeader("Accept"));
         response.setStatus(answer.status());
         if (answer.contentType() != null) response.setContentType(answer.contentType());
         answer.headers().forEach(response::setHeader);

@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -32,6 +33,12 @@ public final class Console {
         }
     }
 
+    /** Why the console doesn't answer, and what to do (Agent.noConsole). */
+    public record NoConsole(String title, String detail) {}
+
+    // While the console doesn't answer: the browser asks again this often, and the page reloads itself as often.
+    private static final int RETRY_S = 2;
+
     private Console() {}
 
     public static boolean local(String address) {
@@ -48,6 +55,15 @@ public final class Console {
      * elsewhere is refused; so is one over MAX_BODY (`body` null: too large to read).
      */
     public static Answer forward(Tracepanel tracepanel, String method, String path, String contentType, byte[] body, String from) {
+        return forward(tracepanel, method, path, contentType, body, from, null);
+    }
+
+    /**
+     * As above, the request's Accept header given: without a console, a browser's page (it accepts HTML) gets a page
+     * that says why and reloads itself until the console answers.
+     */
+    public static Answer forward(
+            Tracepanel tracepanel, String method, String path, String contentType, byte[] body, String from, String accept) {
         if (!answers(from, tracepanel.config().consoleRemote())) {
             return Answer.text(403, "The Tracepanel console answers this machine only. TRACEPANEL_CONSOLE_REMOTE=1 opens it"
                     + " to others, such as when the app runs in a container.");
@@ -56,7 +72,7 @@ public final class Console {
         // another service's (a linked trace of the chain) the agent asks that app for, down its connection.
         if (method.equals("GET") && (path.equals("api/explain") || path.startsWith("api/explain?"))) {
             Answer here = Explain.answer(tracepanel, path.substring(path.indexOf('?') + 1));
-            return here != null ? here : agent(tracepanel, method, path, contentType, body, EXPLAIN_TIMEOUT_MS);
+            return here != null ? here : agent(tracepanel, method, path, contentType, body, accept, EXPLAIN_TIMEOUT_MS);
         }
         if (method.equals("GET") && (path.equals("api/capabilities") || path.startsWith("api/capabilities?"))) {
             // The agent answers what the console can offer, from the app's hello: connected now, it has heard it.
@@ -66,15 +82,19 @@ public final class Console {
             if (!local(from)) return Answer.text(403, "The Tracepanel console takes writes from this machine only.");
             if (body == null) return Answer.text(413, "Too large.");
         }
-        return agent(tracepanel, method, path, contentType, body, TIMEOUT_MS);
+        return agent(tracepanel, method, path, contentType, body, accept, TIMEOUT_MS);
     }
 
-    /** The agent's answer to the request, waited for up to `timeout` milliseconds; the agent started if none answers. */
-    private static Answer agent(Tracepanel tracepanel, String method, String path, String contentType, byte[] body, int timeout) {
+    /**
+     * The agent's answer to the request, waited for up to `timeout` milliseconds; the agent started if none answers.
+     * Without a console, 503: why, and what to do.
+     */
+    private static Answer agent(
+            Tracepanel tracepanel, String method, String path, String contentType, byte[] body, String accept, int timeout) {
         Agent agent = tracepanel.agent();
         String base = agent.console();
         if (base == null && agent.ensure(false)) base = agent.console();
-        if (base == null) return Answer.text(503, "No Tracepanel agent: set TRACEPANEL_AGENT_BIN, or put tracepanel-agent on the PATH.");
+        if (base == null) return unavailable(agent.noConsole(), accept);
         try {
             return fetch(base + path, method, contentType, body, tracepanel.config().service(), timeout);
         } catch (IOException e) {
@@ -83,11 +103,64 @@ public final class Console {
                 try {
                     return fetch(base + path, method, contentType, body, tracepanel.config().service(), timeout);
                 } catch (IOException again) {
-                    return Answer.text(502, "Tracepanel's agent doesn't answer.");
+                    return unavailable(agent.noConsole(), accept);
                 }
             }
-            return Answer.text(502, "Tracepanel's agent doesn't answer.");
+            return unavailable(agent.noConsole(), accept);
         }
+    }
+
+    /**
+     * No console: 503 with why and what to do. A browser's page (it accepts HTML) gets a small page that reloads itself
+     * until the console answers; the console's API calls and its files get `{"error": ...}`.
+     */
+    static Answer unavailable(NoConsole why, String accept) {
+        Map<String, String> headers = Map.of("Retry-After", String.valueOf(RETRY_S), "Cache-Control", "no-store");
+        if (accept != null && accept.contains("text/html")) {
+            return new Answer(503, "text/html; charset=utf-8", headers, page(why).getBytes(StandardCharsets.UTF_8));
+        }
+        return new Answer(503, "application/json", headers, Json.write(Map.of("error", why.detail())).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** The page in the console's look (its dark tokens), with nothing to load: the console is what's missing. */
+    static String page(NoConsole why) {
+        return """
+                <!doctype html>
+                <html lang="en">
+                <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta http-equiv="refresh" content="%1$d">
+                <title>Tracepanel: %2$s</title>
+                <style>
+                :root { color-scheme: dark; }
+                body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0a0c11; color: #eceef3;
+                  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+                main { box-sizing: border-box; max-width: 38rem; margin: 2rem 1rem; padding: 1.5rem 1.75rem; border: 1px solid #2a3040;
+                  border-radius: 12px; background: rgb(245 181 68 / 0.06); }
+                h1 { margin: 0 0 0.75rem; font-size: 1.05rem; font-weight: 600; color: #f5b544; }
+                p { margin: 0.5rem 0; overflow-wrap: anywhere; }
+                .muted { color: #8c93a6; font-size: 13px; }
+                </style>
+                </head>
+                <body>
+                <main>
+                <h1>%2$s</h1>
+                <p>%3$s</p>
+                <p class="muted">This page reloads itself every %1$d seconds and shows the console once it answers.</p>
+                </main>
+                </body>
+                </html>
+                """.formatted(RETRY_S, escape(why.title()), escape(why.detail()));
+    }
+
+    private static String escape(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        for (char c : text.toCharArray()) {
+            if ("&<>\"'".indexOf(c) >= 0) out.append("&#").append((int) c).append(';');
+            else out.append(c);
+        }
+        return out.toString();
     }
 
     /**

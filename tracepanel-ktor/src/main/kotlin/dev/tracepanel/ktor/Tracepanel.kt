@@ -345,6 +345,7 @@ private suspend fun console(tracepanel: Core, call: ApplicationCall, path: Strin
         tracepanel, method, path + if (query.isEmpty()) "" else "?$query",
         call.request.contentType().takeIf { it != ContentType.Any }?.toString(),
         body?.takeIf { it.size <= Console.MAX_BODY }, call.request.local.remoteAddress,
+        call.request.headers["Accept"],
     )
     answer.headers().forEach { (name, value) -> call.response.headers.append(name, value, safeOnly = false) }
     call.respondBytes(
