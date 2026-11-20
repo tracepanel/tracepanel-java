@@ -1,7 +1,13 @@
 package dev.tracepanel.core;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +21,8 @@ import java.util.Map;
  */
 public final class Agent {
     private static final long START_WAIT_MS = 1500;
+    // A bare connect to the address: an agent on this machine accepts at once.
+    private static final int PROBE_TIMEOUT_MS = 250;
     // An agent that exited (idle, killed, a new build) is started again at once; one that couldn't start, after this.
     private static final long RESTART_MS = 30_000;
     private static final String IDLE_EXIT_S = "1800";
@@ -64,23 +72,62 @@ public final class Agent {
 
     /**
      * Whether an agent runs for the project: one already does, or this starts it (RESTART_MS after a failure).
-     * `gone`: the one at its address didn't answer, and its addresses go before a new one starts.
+     * `gone`: the one at its address didn't take the app's hello, so whether it answers at all is asked first.
+     * Its addresses stay either way: they may be another process's agent's, starting or busy this very moment, and
+     * an agent that didn't exit cleanly leaves its own to the next one, which removes them while it holds the store's
+     * lock.
      */
     public synchronized boolean ensure(boolean gone) {
         if (!gone && !address().isEmpty()) return true;
+        if (gone && answers(address())) return true;
         if (!autoStart() || System.currentTimeMillis() - failedAt < RESTART_MS) return false;
-        if (gone) {
-            for (String name : List.of("agent.addr", "console.addr")) {
-                try {
-                    Files.deleteIfExists(store.resolve(name));
-                } catch (IOException ignored) {
-                    // Another process's: it starts the new one.
-                }
-            }
-        }
         boolean started = start();
         if (!started) failedAt = System.currentTimeMillis();
         return started;
+    }
+
+    /**
+     * A socket connected to the agent's address, `unix:/path` or `tcp:host:port` (a channel for the former); null for
+     * an address of neither kind.
+     */
+    static Closeable connect(String address, int timeoutMs) throws IOException {
+        if (address.startsWith("unix:")) {
+            SocketChannel socket = SocketChannel.open(StandardProtocolFamily.UNIX);
+            try {
+                socket.connect(UnixDomainSocketAddress.of(Path.of(address.substring("unix:".length()))));
+            } catch (IOException | RuntimeException e) {
+                socket.close();
+                throw e;
+            }
+            return socket;
+        }
+        if (address.startsWith("tcp:")) {
+            String hostPort = address.substring("tcp:".length());
+            int at = hostPort.lastIndexOf(':');
+            Socket socket = new Socket();
+            try {
+                socket.connect(
+                        new InetSocketAddress(hostPort.substring(0, at).replaceAll("^\\[|]$", ""), Integer.parseInt(hostPort.substring(at + 1))),
+                        timeoutMs);
+            } catch (IOException | RuntimeException e) {
+                socket.close();
+                throw e;
+            }
+            return socket;
+        }
+        return null;
+    }
+
+    /** Whether an agent listens at the address: an address file alone may be a stopped agent's. */
+    static boolean answers(String address) {
+        try {
+            Closeable socket = connect(address, PROBE_TIMEOUT_MS);
+            if (socket == null) return false;
+            socket.close();
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     private boolean start() {
@@ -108,8 +155,14 @@ public final class Agent {
             warn("the agent didn't start: " + e.getMessage());
             return false;
         }
+        // Until its address answers: the file may still be a stopped agent's (a unix socket's is the same path each
+        // time). Another process's agent may win the race (one per store): then that one's answers.
         long deadline = System.currentTimeMillis() + START_WAIT_MS;
-        while (System.currentTimeMillis() < deadline && address().isEmpty()) {
+        while (!answers(address())) {
+            if (System.currentTimeMillis() >= deadline) {
+                warn("the agent didn't start (see " + store.resolve("agent.log") + ")");
+                return false;
+            }
             try {
                 Thread.sleep(20);
             } catch (InterruptedException e) {
@@ -117,8 +170,7 @@ public final class Agent {
                 return false;
             }
         }
-        if (address().isEmpty()) warn("the agent didn't start (see " + store.resolve("agent.log") + ")");
-        return !address().isEmpty();
+        return true;
     }
 
     /**

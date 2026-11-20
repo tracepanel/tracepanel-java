@@ -1,19 +1,16 @@
 package dev.tracepanel.core;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.StandardProtocolFamily;
-import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -226,24 +223,14 @@ public final class Sender {
     /** A connection the agent accepted after the hello line, or null. */
     private Connection handshake(String address) {
         try {
-            AutoCloseable channel;
+            Closeable channel = Agent.connect(address, CONNECT_TIMEOUT_MS);
             OutputStream out;
             InputStream in;
-            if (address.startsWith("unix:")) {
-                SocketChannel socket = SocketChannel.open(StandardProtocolFamily.UNIX);
-                socket.connect(UnixDomainSocketAddress.of(Path.of(address.substring("unix:".length()))));
-                channel = socket;
+            if (channel instanceof SocketChannel socket) {
                 out = Channels.newOutputStream(socket);
                 in = Channels.newInputStream(socket);
-            } else if (address.startsWith("tcp:")) {
-                String hostPort = address.substring("tcp:".length());
-                int at = hostPort.lastIndexOf(':');
-                Socket socket = new Socket();
-                socket.connect(
-                        new InetSocketAddress(hostPort.substring(0, at).replaceAll("^\\[|]$", ""), Integer.parseInt(hostPort.substring(at + 1))),
-                        CONNECT_TIMEOUT_MS);
+            } else if (channel instanceof Socket socket) {
                 socket.setSoTimeout(CONNECT_TIMEOUT_MS);
-                channel = socket;
                 out = socket.getOutputStream();
                 in = socket.getInputStream();
             } else {
